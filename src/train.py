@@ -477,7 +477,6 @@ def main():
             config['name'] = '%s_%s_wDS' % (config['dataset'], config['arch'])
         else:
             config['name'] = '%s_%s_woDS' % (config['dataset'], config['arch'])
-    os.makedirs('models/%s' % config['name'], exist_ok=True)
 
     print('-' * 20)
     for key in config:
