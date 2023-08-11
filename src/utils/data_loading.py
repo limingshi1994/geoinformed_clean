@@ -221,22 +221,28 @@ class SatteliteTrainDataset(nn.Module):
             gt = torch.tensor(gt, dtype=torch.long)
             sat = torch.tensor(sat, dtype=torch.float32)
             valid_mask = torch.tensor(invalid_mask, dtype=torch.bool).logical_not()
+            cloud_mask = torch.tensor(cloud_mask, dtype=torch.bool)
+            label_mask = torch.tensor(nolabel_mask, dtype=torch.bool).logical_not()
             # Get a crop
-            sat, gt, valid_mask = random_crop(
+            sat, gt, valid_mask, cloud_mask, label_mask = random_crop(
                 sat,
                 gt,
                 valid_mask,
+                cloud_mask,
+                label_mask,
                 self.patch_size,
                 self.patch_size,
                 padding_value_img=1,
-                padding_value_mask=0,
+                padding_value_gt=0,
                 padding_value_valid_mask=0,
+                padding_value_cloud_mask=1,
+                padding_value_label_mask=0,
             )
             valid_ratio = (valid_mask.sum() / valid_mask.numel()).item()
             if valid_ratio > self.valid_threshold:
                 break
 
-        sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask}
+        sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask, "cloud_mask": cloud_mask, "label_mask": label_mask}
         return sample
 
 
@@ -457,11 +463,15 @@ class SatteliteValDataset(nn.Module):
         gt = torch.tensor(gt, dtype=torch.long)
         sat = torch.tensor(sat, dtype=torch.float32)
         valid_mask = torch.tensor(invalid_mask, dtype=torch.bool).logical_not()
+        cloud_mask = torch.tensor(cloud_mask, dtype=torch.bool)
+        label_mask = torch.tensor(nolabel_mask, dtype=torch.bool).logical_not()
         # Get a crop
 
         full_sat = copy.deepcopy(sat)
         full_gt = copy.deepcopy(gt)
         full_valid_mask = copy.deepcopy(valid_mask)
+        full_cloud_mask = copy.deepcopy(cloud_mask)
+        full_label_mask = copy.deepcopy(label_mask)
 
         sat = split_into_tiles(
             sat, tile_size=self.patch_size, offset=self.patch_offset, padding_value=1
@@ -471,6 +481,18 @@ class SatteliteValDataset(nn.Module):
         )
         valid_mask = split_into_tiles(
             valid_mask,
+            tile_size=self.patch_size,
+            offset=self.patch_offset,
+            padding_value=0,
+        )
+        cloud_mask = split_into_tiles(
+            cloud_mask,
+            tile_size=self.patch_size,
+            offset=self.patch_offset,
+            padding_value=1,
+        )
+        label_mask = split_into_tiles(
+            label_mask,
             tile_size=self.patch_size,
             offset=self.patch_offset,
             padding_value=0,
@@ -495,18 +517,33 @@ class SatteliteValDataset(nn.Module):
             item if valid_indices[i] else torch.zeros_like(item)
             for i, item in enumerate(valid_mask)
         ]
+        cloud_mask = [
+            item if valid_indices[i] else torch.zeros_like(item)
+            for i, item in enumerate(cloud_mask)
+        ]
+        label_mask = [
+            item if valid_indices[i] else torch.zeros_like(item)
+            for i, item in enumerate(label_mask)
+        ]
+
 
         sat = torch.stack(sat)
         gt = torch.stack(gt)
         valid_mask = torch.stack(valid_mask)
+        cloud_mask = torch.stack(cloud_mask)
+        label_mask = torch.stack(label_mask)
 
         sample = {
             "gt": gt,
             "sat": sat,
             "valid_mask": valid_mask,
+            "cloud_mask": cloud_mask,
+            "label_mask": label_mask,
             "gt_full": full_gt,
             "sat_full": full_sat,
             "valid_mask_full": full_valid_mask,
+            "valid_cloud_full": full_cloud_mask,
+            "valid_label_full": full_label_mask,
         }
         # sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask}
 
@@ -730,11 +767,15 @@ class SatteliteTestDataset(nn.Module):
         gt = torch.tensor(gt, dtype=torch.long)
         sat = torch.tensor(sat, dtype=torch.float32)
         valid_mask = torch.tensor(invalid_mask, dtype=torch.bool).logical_not()
+        cloud_mask = torch.tensor(cloud_mask, dtype=torch.bool)
+        label_mask = torch.tensor(nolabel_mask, dtype=torch.bool).logical_not()
         # Get a crop
 
         full_sat = copy.deepcopy(sat)
         full_gt = copy.deepcopy(gt)
         full_valid_mask = copy.deepcopy(valid_mask)
+        full_cloud_mask = copy.deepcopy(cloud_mask)
+        full_label_mask = copy.deepcopy(label_mask)
 
         sat = split_into_tiles(
             sat, tile_size=self.patch_size, offset=self.patch_offset, padding_value=1
@@ -744,6 +785,18 @@ class SatteliteTestDataset(nn.Module):
         )
         valid_mask = split_into_tiles(
             valid_mask,
+            tile_size=self.patch_size,
+            offset=self.patch_offset,
+            padding_value=0,
+        )
+        cloud_mask = split_into_tiles(
+            cloud_mask,
+            tile_size=self.patch_size,
+            offset=self.patch_offset,
+            padding_value=1,
+        )
+        label_mask = split_into_tiles(
+            label_mask,
             tile_size=self.patch_size,
             offset=self.patch_offset,
             padding_value=0,
@@ -768,18 +821,33 @@ class SatteliteTestDataset(nn.Module):
             item if valid_indices[i] else torch.zeros_like(item)
             for i, item in enumerate(valid_mask)
         ]
+        cloud_mask = [
+            item if valid_indices[i] else torch.zeros_like(item)
+            for i, item in enumerate(cloud_mask)
+        ]
+        label_mask = [
+            item if valid_indices[i] else torch.zeros_like(item)
+            for i, item in enumerate(label_mask)
+        ]
+
 
         sat = torch.stack(sat)
         gt = torch.stack(gt)
         valid_mask = torch.stack(valid_mask)
+        cloud_mask = torch.stack(cloud_mask)
+        label_mask = torch.stack(label_mask)
 
         sample = {
             "gt": gt,
             "sat": sat,
             "valid_mask": valid_mask,
+            "cloud_mask": cloud_mask,
+            "label_mask": label_mask,
             "gt_full": full_gt,
             "sat_full": full_sat,
             "valid_mask_full": full_valid_mask,
+            "valid_cloud_full": full_cloud_mask,
+            "valid_label_full": full_label_mask,
         }
         # sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask}
 

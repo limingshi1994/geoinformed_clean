@@ -24,15 +24,11 @@ import numpy as np
 
 import archs
 import losses
-from dataset import Dataset
 from metrics import iou_score, pixel_accuracy
 from unet_utils import AverageMeter, AverageMeterBatched, str2bool
 from generate_subkaarts import generate_subkaarts
 from utils.data_loading import SatteliteTrainDataset, SatteliteTestDataset, SatteliteValDataset
 from ece_kde import get_ece_kde
-
-from utils.constants import norm_hi_median as norm_hi
-from utils.constants import norm_lo_median as norm_lo
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
@@ -239,7 +235,7 @@ def check_img(sample, model, criterion, config):
                   'iou': AverageMeterBatched(),
                   'acc': AverageMeterBatched()}
 
-    odir = f'inspect_images'
+    odir = f"{config['output_dir']}/inspect_images"
     if not os.path.exists(odir):
         os.makedirs(odir)
 
@@ -470,6 +466,9 @@ def validate(config, val_loader, model, criterion):
 
 
 def main():
+    from utils.constants import norm_hi_median as norm_hi
+    from utils.constants import norm_lo_median as norm_lo
+    
     config = vars(parse_args())
 
     if config['name'] is None:
@@ -525,6 +524,7 @@ def main():
     if not os.path.exists(f"{config['output_dir']}/models/{config['name']}/{config['train_samples']}"):
         os.makedirs(f"{config['output_dir']}/models/{config['name']}/{config['train_samples']}")
 
+    now = datetime.now()
     date_time = now.strftime("%Y%m%d%H%M%S")
     with open(f"{config['output_dir']}/models/{config['name']}/{config['train_samples']}/config_{date_time}.yml", 'w') as f:
         yaml.dump(config, f)
@@ -620,8 +620,6 @@ def main():
     tile_index = 0
     # plt.imshow(sat[0, tile_index].permute(1, 2, 0))
     
-    
-
     log = OrderedDict([
         ('epoch', []),
         ('lr', []),
@@ -635,7 +633,6 @@ def main():
 
     best_iou = 0
     trigger = 0
-    now = datetime.now()
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 

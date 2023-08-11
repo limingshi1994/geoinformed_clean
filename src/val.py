@@ -19,7 +19,6 @@ from PIL import Image
 
 
 import archs
-from dataset import Dataset
 from metrics import iou_score
 from unet_utils import AverageMeter
 from train import make_one_hot
@@ -70,6 +69,9 @@ def parse_args():
 
 
 def main():
+    from utils.constants import norm_hi_median as norm_hi
+    from utils.constants import norm_lo_median as norm_lo
+    
     args = vars(parse_args())
 
     with open('models/%s/config.yml' % args['name'], 'r') as f:
@@ -136,8 +138,6 @@ def main():
     tpatch_offset = args['tpatch_offset']
     tvalid_threshold = args['tvalid_threshold']
 
-    from utils.constants import norm_hi_median as norm_hi
-    from utils.constants import norm_lo_median as norm_lo
     norm_hi = np.array(norm_hi)
     norm_lo = np.array(norm_lo)
     
