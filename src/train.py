@@ -344,10 +344,15 @@ def train(config, train_loader, model, criterion, optimizer):
         sat = sample['sat']
         gt = sample['gt']
         valid_mask = sample["valid_mask"]
+        cloud_mask = sample["cloud_mask"]
+        label_mask = sample["label_mask"]
         gt_masked = gt * valid_mask
         gt_masked = make_one_hot(gt_masked, config['num_classes'])
-        
-        input = sat.to(device)
+
+        # addtional procedure to mask out non-Flemish regions in satellite images
+        sat_flem = sat * label_mask
+
+        input = sat_flem.to(device)
         target = gt_masked.to(device)
         # compute output
         if config['deep_supervision']:
@@ -360,7 +365,7 @@ def train(config, train_loader, model, criterion, optimizer):
             acc = pixel_accuracy(output[-1], target)
         else:
             output = model(input)
-            loss = criterion(output, target)
+            loss = criterion(output, target, label_mask)
             iou = iou_score(output, target)  # shape: bs
             acc = pixel_accuracy(output, target)  # shape: bs
 
@@ -569,6 +574,8 @@ def main():
     sat = sample["sat"]
     gt = sample["gt"]
     valid_mask = sample["valid_mask"]
+    cloud_mask = sample["cloud_mask"]
+    label_mask = sample["label_mask"]
     print(sat.shape, gt.shape, valid_mask.shape)
     
     

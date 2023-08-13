@@ -28,11 +28,15 @@ class CELoss(nn.CrossEntropyLoss):
         self.alpha = 'good'
         # self.base_loss = nn.CrossEntropyLoss(reduction="mean")
 
-    def forward(self, input, target):
+    def forward(self, input, target, *args):
         # ce_loss = self.base_loss(input, target)
         # input = torch.softmax(input, dim=1)
+        for arg in args:
+            label_mask = arg
+        # modified to exclude regions without an actual ground truth label
+        input_flem = input * label_mask
         nonehot_target = torch.argmax(target, dim=1)
-        ce_loss = super().forward(input, nonehot_target)
+        ce_loss = super().forward(input_flem, nonehot_target)
         return ce_loss
 
 
