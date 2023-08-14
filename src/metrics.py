@@ -33,7 +33,13 @@ def dice_coef(output, target):
         (output.sum() + target.sum() + smooth)
 
 
-def pixel_accuracy(output, target):
+def pixel_accuracy(output, target, **kwargs):
+
+    if "label_mask" in kwargs:
+        label_mask = kwargs["label_mask"]
+    else:
+        label_mask = None
+
     bs = output.shape[0]
 
     if torch.is_tensor(output):
@@ -43,5 +49,7 @@ def pixel_accuracy(output, target):
     predicted = torch.argmax(output, dim=1)
     label = torch.argmax(target, dim=1)
     correct = (predicted == label).float()
+    if label_mask is not None:
+        correct = correct * label_mask.squeeze(1)
     correct = correct.view(bs, -1).mean(dim=1).numpy()
     return correct

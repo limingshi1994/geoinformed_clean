@@ -239,7 +239,7 @@ class SatteliteTrainDataset(nn.Module):
                 padding_value_label_mask=0,
             )
             valid_ratio = (valid_mask.sum() / valid_mask.numel()).item()
-            if valid_ratio > self.valid_threshold:
+            if valid_ratio >= self.valid_threshold:
                 break
 
         sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask, "cloud_mask": cloud_mask, "label_mask": label_mask}
@@ -425,6 +425,9 @@ class SatteliteValDataset(nn.Module):
         sat_path = sample["sat_path"]
         cloud_path = sample["cloud_path"]
 
+        print(f"Index: {idx}")
+        print(f"GT Pat: {gt_path}")
+
         gt = load_tiff(gt_path)
         sat = load_tiff(sat_path)[:3]
         cloud_mask = np.array(Image.open(cloud_path))
@@ -474,64 +477,61 @@ class SatteliteValDataset(nn.Module):
         full_label_mask = copy.deepcopy(label_mask)
 
         sat = split_into_tiles(
-            sat, tile_size=self.patch_size, offset=self.patch_offset, padding_value=1
+            sat, tile_size=self.patch_size, offset=self.patch_offset
         )
         gt = split_into_tiles(
-            gt, tile_size=self.patch_size, offset=self.patch_offset, padding_value=0
+            gt, tile_size=self.patch_size, offset=self.patch_offset
         )
         valid_mask = split_into_tiles(
             valid_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=0,
+            offset=self.patch_offset
         )
         cloud_mask = split_into_tiles(
             cloud_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=1,
+            offset=self.patch_offset
         )
         label_mask = split_into_tiles(
             label_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=0,
+            offset=self.patch_offset
         )
         # Potentially only keep tiles with more than 50% valid mask ratio
 
         valid_indices = [
             (valid_mask_tile.sum() / valid_mask_tile.numel()).item()
-            > self.valid_threshold
+            >= self.valid_threshold
             for valid_mask_tile in valid_mask
         ]
 
-        sat = [
-            item if valid_indices[i] else torch.ones_like(item)
-            for i, item in enumerate(sat)
-        ]
-        gt = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(gt)
-        ]
-        valid_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(valid_mask)
-        ]
-        cloud_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(cloud_mask)
-        ]
-        label_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(label_mask)
-        ]
-
+        # sat = [
+        #     item if valid_indices[i] else torch.ones_like(item)
+        #     for i, item in enumerate(sat)
+        # ]
+        # gt = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(gt)
+        # ]
+        # valid_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(valid_mask)
+        # ]
+        # cloud_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(cloud_mask)
+        # ]
+        # label_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(label_mask)
+        # ]
 
         sat = torch.stack(sat)
         gt = torch.stack(gt)
         valid_mask = torch.stack(valid_mask)
         cloud_mask = torch.stack(cloud_mask)
         label_mask = torch.stack(label_mask)
+        valid_indices = torch.tensor(valid_indices)
 
         sample = {
             "gt": gt,
@@ -542,8 +542,9 @@ class SatteliteValDataset(nn.Module):
             "gt_full": full_gt,
             "sat_full": full_sat,
             "valid_mask_full": full_valid_mask,
-            "valid_cloud_full": full_cloud_mask,
-            "valid_label_full": full_label_mask,
+            "cloud_mask_full": full_cloud_mask,
+            "label_mask_full": full_label_mask,
+            "valid_indices": valid_indices
         }
         # sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask}
 
@@ -778,64 +779,61 @@ class SatteliteTestDataset(nn.Module):
         full_label_mask = copy.deepcopy(label_mask)
 
         sat = split_into_tiles(
-            sat, tile_size=self.patch_size, offset=self.patch_offset, padding_value=1
+            sat, tile_size=self.patch_size, offset=self.patch_offset
         )
         gt = split_into_tiles(
-            gt, tile_size=self.patch_size, offset=self.patch_offset, padding_value=0
+            gt, tile_size=self.patch_size, offset=self.patch_offset
         )
         valid_mask = split_into_tiles(
             valid_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=0,
+            offset=self.patch_offset
         )
         cloud_mask = split_into_tiles(
             cloud_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=1,
+            offset=self.patch_offset
         )
         label_mask = split_into_tiles(
             label_mask,
             tile_size=self.patch_size,
-            offset=self.patch_offset,
-            padding_value=0,
+            offset=self.patch_offset
         )
         # Potentially only keep tiles with more than 50% valid mask ratio
 
         valid_indices = [
             (valid_mask_tile.sum() / valid_mask_tile.numel()).item()
-            > self.valid_threshold
+            >= self.valid_threshold
             for valid_mask_tile in valid_mask
         ]
 
-        sat = [
-            item if valid_indices[i] else torch.ones_like(item)
-            for i, item in enumerate(sat)
-        ]
-        gt = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(gt)
-        ]
-        valid_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(valid_mask)
-        ]
-        cloud_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(cloud_mask)
-        ]
-        label_mask = [
-            item if valid_indices[i] else torch.zeros_like(item)
-            for i, item in enumerate(label_mask)
-        ]
-
+        # sat = [
+        #     item if valid_indices[i] else torch.ones_like(item)
+        #     for i, item in enumerate(sat)
+        # ]
+        # gt = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(gt)
+        # ]
+        # valid_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(valid_mask)
+        # ]
+        # cloud_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(cloud_mask)
+        # ]
+        # label_mask = [
+        #     item if valid_indices[i] else torch.zeros_like(item)
+        #     for i, item in enumerate(label_mask)
+        # ]
 
         sat = torch.stack(sat)
         gt = torch.stack(gt)
         valid_mask = torch.stack(valid_mask)
         cloud_mask = torch.stack(cloud_mask)
         label_mask = torch.stack(label_mask)
+        valid_indices = torch.tensor(valid_indices)
 
         sample = {
             "gt": gt,
@@ -846,8 +844,9 @@ class SatteliteTestDataset(nn.Module):
             "gt_full": full_gt,
             "sat_full": full_sat,
             "valid_mask_full": full_valid_mask,
-            "valid_cloud_full": full_cloud_mask,
-            "valid_label_full": full_label_mask,
+            "cloud_mask_full": full_cloud_mask,
+            "label_mask_full": full_label_mask,
+            "valid_indices": valid_indices
         }
         # sample = {"gt": gt, "sat": sat, "valid_mask": valid_mask}
 

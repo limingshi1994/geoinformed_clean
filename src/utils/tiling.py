@@ -22,7 +22,7 @@ def split_tensor(tensor, tile_size=256, offset=256):
     return tiles, base_tensor
 
 
-def split_into_tiles(img, tile_size=256, offset=256, padding_value=0):
+def split_into_tiles(img, tile_size=256, offset=256):
     h, w = img.shape[1], img.shape[2]
 
     h_padded = math.ceil((h - tile_size) / offset) * offset + tile_size

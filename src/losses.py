@@ -24,20 +24,27 @@ __all__ = ['BCEDiceLoss', 'LovaszHingeLoss', "CELoss"]
 class CELoss(nn.CrossEntropyLoss):
     def __init__(self, weight=None, size_average=None, ignore_index=-100,
                  reduce=None, reduction='mean', lmda=0.1):
-        super().__init__(reduction='mean')
+        super().__init__(reduction='none')
         self.alpha = 'good'
         # self.base_loss = nn.CrossEntropyLoss(reduction="mean")
 
-    def forward(self, input, target, *args):
+    def forward(self, input, target, *args, **kwargs):
         # ce_loss = self.base_loss(input, target)
         # input = torch.softmax(input, dim=1)
-        for arg in args:
-            label_mask = arg
+        bs = input.shape[0]
+        if "label_mask" in kwargs:
+            label_mask = kwargs["label_mask"]
+        else:
+            label_mask = None
         # modified to exclude regions without an actual ground truth label
-        input_flem = input * label_mask
         nonehot_target = torch.argmax(target, dim=1)
-        ce_loss = super().forward(input_flem, nonehot_target)
-        return ce_loss
+        ce_loss = super().forward(input, nonehot_target)
+        if label_mask is not None:
+            ce_loss = ce_loss * label_mask
+        ce_loss = ce_loss.view(bs, -1).mean(dim=1)
+        ce_loss_track = ce_loss.detach().cpu().numpy()
+        ce_loss = ce_loss.mean()
+        return ce_loss, ce_loss_track
 
 
 class BCEDiceLoss(nn.Module):

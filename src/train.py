@@ -43,7 +43,7 @@ def parse_args():
                         help='model name: (default: arch+timestamp)')
     parser.add_argument('--epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
-    parser.add_argument('--train_samples', default=5, type=int, metavar='N',
+    parser.add_argument('--train_samples', default=1000, type=int, metavar='N',
                         help='number of total samples we take during one sampling cycle (epoch)')
     parser.add_argument('-b', '--batch_size', default=16, type=int,
                         metavar='N', help='mini-batch size (default: 16)')
@@ -129,14 +129,14 @@ def parse_args():
     parser.add_argument(
         "-vt",
         "--valid-threshold",
-        default=0.3,
+        default=0.1,
         type=float,
-        help="Ratio of non-clouded area required to not mask-out a patch.",
+        help="Ratio of (non-clouded + labeled) required to not mask-out a patch.",
     )
     
     #valdataset
-    parser.add_argument("-vk", "--vkaartbladen", default=['17_3-4'], nargs="+", type=str)
-    # parser.add_argument("-vk", "--vkaartbladen", default=generate_subkaarts([str(r) for r in list(range(1,44))])[1], nargs="+", type=str)
+    # parser.add_argument("-vk", "--vkaartbladen", default=['15_3-4'], nargs="+", type=str)
+    parser.add_argument("-vk", "--vkaartbladen", default=generate_subkaarts([str(r) for r in list(range(1,44))])[1], nargs="+", type=str)
     parser.add_argument("-vy", "--vyears", default=['2022'], nargs="+", type=str)
     parser.add_argument("-vm", "--vmonths", default=['03'], nargs="+", type=str)
     parser.add_argument("-vr", "--vroot-dir", default='../downloads_230703',type=str, required=False)
@@ -157,7 +157,7 @@ def parse_args():
     parser.add_argument(
         "-vvt",
         "--vvalid-threshold",
-        default=0.3,
+        default=0.0,
         type=float,
         help="Ratio of non-clouded area required to not mask-out a patch.",
     )
@@ -231,7 +231,7 @@ def check_img(sample, model, criterion, config):
     cmap[0, -1] = 0  # Set alpha for label 0 to be 0
     cmap[1:, -1] = 0.3  # Set the other alphas for the labels to be 0.3
 
-    avg_meters = {'loss': AverageMeter(),
+    avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
                   'acc': AverageMeterBatched()}
 
@@ -269,16 +269,16 @@ def check_img(sample, model, criterion, config):
             iou = iou_score(outputs[-1], target)
         else:
             output = model(input)
-            loss = criterion(output, target)
+            loss, loss_track = criterion(output, target)
             iou = iou_score(output, target)
             acc = pixel_accuracy(output, target)
 
-        avg_meters['loss'].update(loss.item(), input.size(0))
+        avg_meters['loss'].update(list(loss_track))
         avg_meters['iou'].update(list(iou))
         avg_meters['acc'].update(list(acc))
 
         postfix = OrderedDict([
-            ('loss', avg_meters['loss'].avg),
+            ('loss', avg_meters['loss'].report()),
             ('iou', avg_meters['iou'].report()),
             ('acc', avg_meters['acc'].report()),
         ])
@@ -317,8 +317,9 @@ def check_img(sample, model, criterion, config):
         # plt.show(satfig)
 
         currentfig = plt.imshow(satim)
-        currentfig = plt.imshow(ovlypred)
+        # currentfig = plt.imshow(ovlypred)
         plt.savefig(f'{odir}/merged_{imid}.png', dpi=1200)
+        plt.close()
         # plt.show(currentfig)
         imid = imid + 1
     torch.cuda.empty_cache()
@@ -328,7 +329,7 @@ def train(config, train_loader, model, criterion, optimizer):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Current device: {device}")
 
-    avg_meters = {'loss': AverageMeter(),
+    avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
                   'acc': AverageMeterBatched()}
 
@@ -365,21 +366,21 @@ def train(config, train_loader, model, criterion, optimizer):
             acc = pixel_accuracy(output[-1], target)
         else:
             output = model(input)
-            loss = criterion(output, target, label_mask)
+            loss, loss_track = criterion(output, target, label_mask)
             iou = iou_score(output, target)  # shape: bs
-            acc = pixel_accuracy(output, target)  # shape: bs
+            acc = pixel_accuracy(output, target, label_mask=label_mask)  # shape: bs
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        avg_meters['loss'].update(loss.item(), input.size(0))
+        avg_meters['loss'].update(list(loss_track))
         avg_meters['iou'].update(list(iou))
         avg_meters['acc'].update(list(acc))
 
         postfix = OrderedDict([
-            ('loss', avg_meters['loss'].avg),
+            ('loss', avg_meters['loss'].report()),
             ('iou', avg_meters['iou'].report()),
             ('acc', avg_meters['acc'].report())
         ])
@@ -394,7 +395,7 @@ def train(config, train_loader, model, criterion, optimizer):
             counter = counter+1
     pbar.close()
 
-    return OrderedDict([('loss', avg_meters['loss'].avg),
+    return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
                         ('acc', avg_meters['acc'].report())])
 
@@ -403,7 +404,7 @@ def validate(config, val_loader, model, criterion):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Current device: {device}")
 
-    avg_meters = {'loss': AverageMeter(),
+    avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
                   'acc': AverageMeterBatched()}
 
@@ -443,16 +444,16 @@ def validate(config, val_loader, model, criterion):
                     acc = pixel_accuracy(outputs[-1], target)
                 else:
                     output = model(input)
-                    loss = criterion(output, target)
+                    loss, loss_track = criterion(output, target)
                     iou = iou_score(output, target)
                     acc = pixel_accuracy(output, target)
     
-                avg_meters['loss'].update(loss.item(), input.size(0))
+                avg_meters['loss'].update(list(loss_track))
                 avg_meters['iou'].update(list(iou))
                 avg_meters['acc'].update(list(acc))
     
                 postfix = OrderedDict([
-                    ('loss', avg_meters['loss'].avg),
+                    ('loss', avg_meters['loss'].report()),
                     ('iou', avg_meters['iou'].report()),
                     ('acc', avg_meters['acc'].report()),
                 ])
@@ -464,8 +465,7 @@ def validate(config, val_loader, model, criterion):
         pbar.close()
 
 
-
-    return OrderedDict([('loss', avg_meters['loss'].avg),
+    return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
                         ('acc', avg_meters['acc'].report())])
 
