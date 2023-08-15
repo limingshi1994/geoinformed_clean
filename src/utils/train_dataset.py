@@ -65,6 +65,7 @@ class SatteliteTrainDataset(nn.Module):
         self.build_data_dict()
         self.filter_by_year(years)
         self.filter_by_month(months)
+        self.filter_by_empty()
 
     def build_data_dict(self):
         print("Building the data dictionary...")
@@ -159,6 +160,16 @@ class SatteliteTrainDataset(nn.Module):
                     ].items()
                     if month in months
                 }
+
+    def filter_by_empty(self):
+        keys_to_delete = []
+        for kaartblad in self.data_dict.keys():
+            gt_path = self.data_dict[kaartblad]["gt_path"]
+            gt = load_tiff(gt_path)
+            if gt.max() == 0:
+                keys_to_delete.append(kaartblad)
+        for key in keys_to_delete:
+            del self.data_dict[key]
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
