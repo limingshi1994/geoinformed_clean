@@ -101,37 +101,20 @@ def random_pixel_uniform_crop(
 
     h, w = img.shape[1], img.shape[2]
 
-    if height > h:
-        pad_height_top = math.ceil((height - h) / 2)
-        pad_height_bottom = math.floor((height - h) / 2)
-    else:
-        pad_height_top = 0
-        pad_height_bottom = 0
-
-    if width > w:
-        pad_width_left = math.ceil((width - w) / 2)
-        pad_width_right = math.floor((width - w) / 2)
-    else:
-        pad_width_left = 0
-        pad_width_right = 0
-
+    pad_height_top = math.ceil(height - 1)
+    pad_height_bottom = math.floor(height - 1)
+    pad_width_left = math.ceil(width - 1)
+    pad_width_right = math.floor(width - 1)
     padding = (pad_width_left, pad_width_right, pad_height_top, pad_height_bottom)
-    if any(padding):
-        img = F.pad(img, padding, "reflect")
-        gt = F.pad(gt, padding, "reflect")
-        valid_mask = F.pad(valid_mask, padding, "reflect")
-        cloud_mask = F.pad(cloud_mask, padding, "reflect")
-        label_mask = F.pad(label_mask, padding, "reflect")
 
-    if height > h:
-        y = 0
-    else:
-        y = random.randint(0, h - height)
+    img = F.pad(img, padding, "reflect")
+    gt = F.pad(gt, padding, "reflect")
+    valid_mask = F.pad(valid_mask, padding, "constant", value=0)
+    cloud_mask = F.pad(cloud_mask, padding, "reflect")
+    label_mask = F.pad(label_mask, padding, "constant", value=0)
 
-    if width > w:
-        x = 0
-    else:
-        x = random.randint(0, w - width)
+    y = random.randint(0, h)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
+    x = random.randint(0, w)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
 
     img = img[:, y : y + height, x : x + width]
     gt = gt[:, y : y + height, x : x + width]
