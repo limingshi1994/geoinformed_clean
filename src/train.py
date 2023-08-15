@@ -43,11 +43,11 @@ def parse_args():
                         help='model name: (default: arch+timestamp)')
     parser.add_argument('--epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
-    parser.add_argument('--train_samples', default=1000, type=int, metavar='N',
+    parser.add_argument('--train_samples', default=100, type=int, metavar='N',
                         help='number of total samples we take during one sampling cycle (epoch)')
     parser.add_argument('-b', '--batch_size', default=16, type=int,
                         metavar='N', help='mini-batch size (default: 16)')
-    parser.add_argument('-vb', '--val_batch_size', default=32, type=int,
+    parser.add_argument('-vb', '--val_batch_size', default=16, type=int,
                         metavar='N', help='validation-batch size (default: 50)')
     
     # storing outputs
@@ -159,6 +159,13 @@ def parse_args():
         "--vvalid-threshold",
         default=0.0,
         type=float,
+        help="Ratio of non-clouded area required to not mask-out a patch.",
+    )
+    parser.add_argument(
+        "-vev",
+        "--veval-every",
+        default=12,
+        type=int,
         help="Ratio of non-clouded area required to not mask-out a patch.",
     )
 
@@ -461,7 +468,7 @@ def validate(config, val_loader, model, criterion):
             pbar.set_postfix(postfix)
             pbar.update(1)
             torch.cuda.empty_cache()
-        check_img(sample, model, criterion, config)
+        # check_img(sample, model, criterion, config)
         pbar.close()
 
 
@@ -595,6 +602,7 @@ def main():
     vpatch_size = config['vpatch_size']
     vpatch_offset = config['vpatch_offset']
     vvalid_threshold = config['vvalid_threshold']
+    veval_every = config['veval_every']
 
     norm_hi = np.array(norm_hi)
     norm_lo = np.array(norm_lo)
@@ -608,7 +616,9 @@ def main():
         patch_offset=vpatch_offset,
         valid_threshold=vvalid_threshold,
         norm_hi=norm_hi,
-        norm_lo=norm_lo
+        norm_lo=norm_lo,
+        eval_every=veval_every,
+        split="val"
         )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, 
