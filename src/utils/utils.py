@@ -1,5 +1,10 @@
+import torch
 import numpy as np
 
+def make_one_hot(labels, classes):
+    one_hot = torch.FloatTensor(labels.size()[0], classes, labels.size()[2], labels.size()[3]).zero_().to(labels.device)
+    target = one_hot.scatter_(1, labels.data, 1)
+    return target
 
 def find_geq_trim(data, threshold=0):
     if len(data.shape) == 3:

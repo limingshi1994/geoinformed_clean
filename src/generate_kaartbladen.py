@@ -11,7 +11,7 @@ from geocube.api.core import make_geocube
 
 import argparse
 import datetime
-from generate_subkaarts import generate_subkaarts
+from utils.generate_subkaarts import generate_subkaarts
 
 
 def get_args():

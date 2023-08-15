@@ -1,31 +1,21 @@
 import argparse
 import os
-from glob import glob
 
 import numpy as np
-import cv2
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import yaml
-import losses
-from albumentations.augmentations import transforms
-from albumentations.core.composition import Compose
-from sklearn.model_selection import train_test_split
+from utils import losses
 from tqdm import tqdm
-from utils.data_loading import SatteliteTrainDataset, SatteliteTestDataset
+from utils.eval_dataset import SatteliteEvalDataset
 import matplotlib.pyplot as plt
-from PIL import Image
-
 
 import archs
-from metrics import iou_score
+from utils.metrics import iou_score
 from unet_utils import AverageMeter
 from train import make_one_hot
-from matplotlib import cm, colors
-from generate_subkaarts import generate_subkaarts
-
-
+from matplotlib import cm
 
 
 def parse_args():
@@ -48,21 +38,6 @@ def parse_args():
         type=int,
         help="Size of test patches.",
     )
-    parser.add_argument(
-        "-tpo",
-        "--tpatch-offset",
-        default=128,
-        type=int,
-        help="Offset between test patches.",
-    )
-    parser.add_argument(
-        "-tvt",
-        "--tvalid-threshold",
-        default=0.3,
-        type=float,
-        help="Ratio of non-clouded area required to not mask-out a patch.",
-    )
-
     args = parser.parse_args()
 
     return args
@@ -135,21 +110,17 @@ def main():
     # root_dir = "../generated_data"
     troot_dir = args['troot_dir']
     tpatch_size = args['tpatch_size']
-    tpatch_offset = args['tpatch_offset']
-    tvalid_threshold = args['tvalid_threshold']
 
     norm_hi = np.array(norm_hi)
     norm_lo = np.array(norm_lo)
     
     
-    test_dataset = SatteliteTestDataset(
+    test_dataset = SatteliteEvalDataset(
         troot_dir,
         tkaartbladen,
         tyears,
         tmonths,
         patch_size=tpatch_size,
-        patch_offset=tpatch_offset,
-        valid_threshold=tvalid_threshold,
         norm_hi=norm_hi,
         norm_lo=norm_lo
         )

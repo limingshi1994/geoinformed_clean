@@ -6,14 +6,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 from PIL import Image
-import scipy.ndimage
 
 from tqdm import tqdm
 
 from utils.cloud_mask import create_cloud_mask
 from utils.gio import load_tiff
-import matplotlib.pyplot as plt
-from generate_subkaarts import generate_subkaarts
+from utils.generate_subkaarts import generate_subkaarts
 
 
 def get_args():
