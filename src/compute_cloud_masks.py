@@ -16,10 +16,11 @@ from utils.generate_subkaarts import generate_subkaarts
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-k", "--kaartbladen", default=generate_subkaarts([str(r) for r in list(range(1,44))])[1], nargs="+", type=str) #modify index with 0:train 1:val 2:test
+    parser.add_argument("-s", "--split", default="val", type=str)
+    parser.add_argument("-k", "--kaartbladen", default=list(range(1,44)), nargs="+", type=str) #modify index with 0:train 1:val 2:test
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
     parser.add_argument("-m", "--months", default=['03'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default = 'downloads_230703/val', type=str) #or downloads_230703/val/ or downloads_230703/test/
+    parser.add_argument("-r", "--root-dir", default='downloads_230703', type=str) #or downloads_230703/val/ or downloads_230703/test/
     parser.add_argument(
         "-ck1",
         "--cloud-kernel-1",
@@ -40,9 +41,19 @@ def get_args():
 
 def check_args(args):
     kaartbladen = args.kaartbladen
+    split = args.split
+    subkaart_selector = {
+        "train": 0,
+        "val": 1,
+        "test": 2,
+    }
+    subkaart_ind = subkaart_selector[split]
+    kaartbladen = generate_subkaarts(kaartbladen)[subkaart_ind]
+
     years = args.years
     months = args.months
     root_dir = args.root_dir
+    root_dir = os.path.join(root_dir, split)
 
     valid_kaartbladen = True
     if not len(kaartbladen):
@@ -87,7 +98,7 @@ def check_args(args):
 
 class CloudComputer(nn.Module):
     def __init__(
-        self, root_dir, kaartbladen, years, months, cloud_kernel_1=9, cloud_kernel_2=81
+        self, root_dir, split, kaartbladen, years, months, cloud_kernel_1=9, cloud_kernel_2=81
     ):
         """
         Arguments:
@@ -113,7 +124,18 @@ class CloudComputer(nn.Module):
                 on a sample.
         """
 
+        root_dir = os.path.join(root_dir, split)
         self.root_dir = root_dir
+        self.kaartbladen = kaartbladen
+        self.split = split
+        subkaart_selector = {
+            "train": 0,
+            "val": 1,
+            "test": 2,
+        }
+        self.subkaart_ind = subkaart_selector[split]
+        self.kaartbladen = generate_subkaarts(self.kaartbladen)[self.subkaart_ind]
+
         self.gt_dir = f"{root_dir}/data_gt"
         self.sat_dir = f"{root_dir}/data_sat"
         self.kaartbladen = kaartbladen
@@ -274,7 +296,7 @@ class CloudComputer(nn.Module):
 def main():
     args = get_args()
     # check_args(args)
-
+    split = args.split
     # kaartbladen = [str(item) for item in range(1, 43)]
     kaartbladen = args.kaartbladen
     # kaartbladen.remove("35")
@@ -293,6 +315,7 @@ def main():
     # Bad kaartbladen: 35 (mismatch, missaligned gt and sat), 43 (missaligned gt and sat) - the other small ones are good
     dataset = CloudComputer(
         root_dir,
+        split,
         kaartbladen,
         years,
         months,

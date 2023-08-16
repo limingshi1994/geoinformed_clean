@@ -11,6 +11,7 @@ def generate_subkaarts(big_kaarts):
     val_subs = []
     test_subs = []
     for kaart in big_kaarts:
+        kaart = str(kaart)
         train_subs = train_subs + [kaart + '_5-6', kaart + '_1-2'] 
         val_subs = val_subs + [kaart + '_3-4']
         test_subs = test_subs + [kaart + '_7-8']

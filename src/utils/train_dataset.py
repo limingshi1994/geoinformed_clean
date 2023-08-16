@@ -8,8 +8,9 @@ import numpy as np
 from PIL import Image
 
 from utils.gio import load_tiff
-from utils.cropping import random_crop
+from utils.cropping import random_pixel_uniform_crop
 from utils.normalization import satellite_normalization_with_cloud_masking
+from utils.generate_subkaarts import generate_subkaarts
 
 
 class SatteliteTrainDataset(nn.Module):
@@ -52,8 +53,16 @@ class SatteliteTrainDataset(nn.Module):
         self.split = split
         self.gt_dir = f"{root_dir}/{split}/data_gt"
         self.sat_dir = f"{root_dir}/{split}/data_sat"
-        self.kaartbladen = kaartbladen
-        self.kaartbladen_names = [f"kaartblad_{item}" for item in kaartbladen]
+
+        subkaart_selector = {
+            "train": 0,
+            "val": 1,
+            "test": 2,
+        }
+        self.subkaart_ind = subkaart_selector[split]
+        self.kaartbladen = generate_subkaarts(kaartbladen)[self.subkaart_ind]
+        self.kaartbladen_names = [f"kaartblad_{item}" for item in self.kaartbladen]
+
         self.years = years
         self.months = months
 
@@ -233,7 +242,7 @@ class SatteliteTrainDataset(nn.Module):
             cloud_mask = torch.tensor(cloud_mask, dtype=torch.bool)
             label_mask = torch.tensor(nolabel_mask, dtype=torch.bool).logical_not()
             # Get a crop
-            sat, gt, valid_mask, cloud_mask, label_mask = random_crop(
+            sat, gt, valid_mask, cloud_mask, label_mask = random_pixel_uniform_crop(
                 sat,
                 gt,
                 valid_mask,

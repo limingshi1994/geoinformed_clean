@@ -107,14 +107,42 @@ def random_pixel_uniform_crop(
     pad_width_right = math.floor(width - 1)
     padding = (pad_width_left, pad_width_right, pad_height_top, pad_height_bottom)
 
+    # Pad img
     img = F.pad(img, padding, "reflect")
+
+    # Pad gt
+    # Need to convert gt to float to perform reflect padding
+    original_gt_type = gt.dtype
+    if original_gt_type != torch.float32:
+        gt = gt.to(torch.float32)
+        type_changed = True
+    else:
+        type_changed = False
     gt = F.pad(gt, padding, "reflect")
+    if type_changed:
+        gt = gt.to(original_gt_type)
+
+    # Pad valid mask
     valid_mask = F.pad(valid_mask, padding, "constant", value=0)
+
+    # Pad cloud mask
+    # Need to convert cloud_mask to float to perform reflect padding
+    original_cloud_mask_type = cloud_mask.dtype
+    if original_cloud_mask_type != torch.float32:
+        cloud_mask = cloud_mask.to(torch.float32)
+        type_changed = True
+    else:
+        type_changed = False
     cloud_mask = F.pad(cloud_mask, padding, "reflect")
+    if type_changed:
+        cloud_mask = cloud_mask.to(original_cloud_mask_type)
+
+    # Pad label mask
     label_mask = F.pad(label_mask, padding, "constant", value=0)
 
-    y = random.randint(0, h)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
-    x = random.randint(0, w)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
+    h_padded, w_padded = img.shape[1], img.shape[2]
+    y = random.randint(0, h_padded - height)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
+    x = random.randint(0, w_padded - width)   # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
 
     img = img[:, y : y + height, x : x + width]
     gt = gt[:, y : y + height, x : x + width]

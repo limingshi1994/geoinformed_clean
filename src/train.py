@@ -19,7 +19,6 @@ import archs
 from utils import losses
 from utils.metrics import iou_score, pixel_accuracy
 from unet_utils import AverageMeterBatched, str2bool
-from utils.generate_subkaarts import generate_subkaarts
 from utils.train_dataset import SatteliteTrainDataset
 from utils.eval_dataset import SatteliteEvalDataset
 from utils.utils import make_one_hot
@@ -47,7 +46,7 @@ def parse_args():
                         metavar='N', help='validation-batch size (default: 50)')
     
     # storing outputs
-    parser.add_argument("-o", "--output-dir", default='../outputs',type=str, required=False)
+    parser.add_argument("-o", "--output-dir", default='../outputs', type=str, required=False)
 
     # model
     parser.add_argument('--arch', '-a', metavar='ARCH', default='NestedUNet',
@@ -110,11 +109,10 @@ def parse_args():
     parser.add_argument('--num_workers', default=1, type=int)
     
     #traindataset
-    # parser.add_argument("-k", "--kaartbladen", default=['16','20','21','22'], nargs="+", type=str)
-    parser.add_argument("-k", "--kaartbladen", default=generate_subkaarts([str(r) for r in list(range(1,44))])[0], nargs="+", type=str)
+    parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
     parser.add_argument("-m", "--months", default=['03'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default='../downloads_230703',type=str, required=False)
+    parser.add_argument("-r", "--root-dir", default='../downloads_230703', type=str, required=False)
     parser.add_argument(
         "-ps",
         "--patch-size",
@@ -124,8 +122,7 @@ def parse_args():
     )
     
     #valdataset
-    # parser.add_argument("-vk", "--vkaartbladen", default=['15_3-4'], nargs="+", type=str)
-    parser.add_argument("-vk", "--vkaartbladen", default=generate_subkaarts([str(r) for r in list(range(1,44))])[1], nargs="+", type=str)
+    parser.add_argument("-vk", "--vkaartbladen", default=list(range(1, 44)), nargs="+", type=str)
     parser.add_argument("-vy", "--vyears", default=['2022'], nargs="+", type=str)
     parser.add_argument("-vm", "--vmonths", default=['03'], nargs="+", type=str)
     parser.add_argument("-vr", "--vroot-dir", default='../downloads_230703',type=str, required=False)

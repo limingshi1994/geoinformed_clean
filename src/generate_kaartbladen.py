@@ -16,8 +16,9 @@ from utils.generate_subkaarts import generate_subkaarts
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-s", "--split", default="val", type=str)
     parser.add_argument("-o", "--out-dir", default='downloads_230703', required=False, type=str)
-    parser.add_argument("-k", "--kaartbladen", default=generate_subkaarts([str(r) for r in list(range(1, 44))])[0], nargs="+", type=str)
+    parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
     parser.add_argument("-t", "--temporal-extent", default=['2022-03-01','2022-04-01'], nargs="+", type=str)
     parser.add_argument(
         "-b",
@@ -126,12 +127,22 @@ def main():
 
     # kaartbladen = [str(item) for item in range(2, 4)]
     kaartbladen = args.kaartbladen
+
+    split = args.split
+    subkaart_selector = {
+        "train": 0,
+        "val": 1,
+        "test": 2,
+    }
+    subkaart_ind = subkaart_selector[split]
+    kaartbladen = generate_subkaarts(kaartbladen)[subkaart_ind]
+
+    out_dir = os.path.joun(args.out_dir, split)
     # temporal_extent = ("2022-03-01", "2022-05-01")
     temporal_extent = args.temporal_extent
     # bands = ["B04", "B03", "B02", "B08", "SCL"]
     bands = args.bands
     # out_dir = "../generated_data"
-    out_dir = args.out_dir
     # gt_file = "../resources/BVM_labeled.zip"
     gt_file = args.gt_file
     # kaartbladen_file = f"../resources/Kbl.shp"

@@ -8,8 +8,9 @@ import numpy as np
 from PIL import Image
 
 from utils.gio import load_tiff
-from utils.cropping import random_crop
+from utils.cropping import random_pixel_uniform_crop
 from utils.normalization import satellite_normalization_with_cloud_masking
+from utils.generate_subkaarts import generate_subkaarts
 
 
 class SatteliteEvalDataset(nn.Module):
@@ -52,8 +53,16 @@ class SatteliteEvalDataset(nn.Module):
         self.split = split
         self.gt_dir = f"{root_dir}/{split}/data_gt"
         self.sat_dir = f"{root_dir}/{split}/data_sat"
-        self.kaartbladen = kaartbladen
-        self.kaartbladen_names = [f"kaartblad_{item}" for item in kaartbladen]
+
+        subkaart_selector = {
+            "train": 0,
+            "val": 1,
+            "test": 2,
+        }
+        self.subkaart_ind = subkaart_selector[split]
+        self.kaartbladen = generate_subkaarts(kaartbladen)[self.subkaart_ind]
+        self.kaartbladen_names = [f"kaartblad_{item}" for item in self.kaartbladen]
+
         self.years = years
         self.months = months
 
@@ -65,6 +74,8 @@ class SatteliteEvalDataset(nn.Module):
         self.build_data_dict()
         self.filter_by_year(years)
         self.filter_by_month(months)
+        self.filter_by_empty()
+
 
     def build_data_dict(self):
         print("Building the data dictionary...")
@@ -160,6 +171,16 @@ class SatteliteEvalDataset(nn.Module):
                     if month in months
                 }
 
+    def filter_by_empty(self):
+        keys_to_delete = []
+        for kaartblad in self.data_dict.keys():
+            gt_path = self.data_dict[kaartblad]["gt_path"]
+            gt = load_tiff(gt_path)
+            if gt.max() == 0:
+                keys_to_delete.append(kaartblad)
+        for key in keys_to_delete:
+            del self.data_dict[key]
+
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -175,6 +196,15 @@ class SatteliteEvalDataset(nn.Module):
                 self.data_dict[kaartblad]["satellite_images"][year][month].keys()
             )
             day = random.choice(days)
+
+            # For debugging
+            # print(f"Debugging: Kaartblad: kaartblad_3_5-6; Year: 2022; Month: 03; Day: 23")
+            # kaartblad = "kaartblad_3_5-6"
+            # year = "2022"
+            # month = "03"
+            # day = "23"
+
+            print(f"Kaartblad: {kaartblad}; Year: {year}; Month: {month}; Day: {day}")
 
             gt_path = self.data_dict[kaartblad]["gt_path"]
             sat_path = self.data_dict[kaartblad]["satellite_images"][year][month][day]
@@ -222,7 +252,7 @@ class SatteliteEvalDataset(nn.Module):
             cloud_mask = torch.tensor(cloud_mask, dtype=torch.bool)
             label_mask = torch.tensor(nolabel_mask, dtype=torch.bool).logical_not()
             # Get a crop
-            sat, gt, valid_mask, cloud_mask, label_mask = random_crop(
+            sat, gt, valid_mask, cloud_mask, label_mask = random_pixel_uniform_crop(
                 sat,
                 gt,
                 valid_mask,
