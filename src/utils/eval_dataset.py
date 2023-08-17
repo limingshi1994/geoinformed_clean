@@ -24,6 +24,9 @@ class SatteliteEvalDataset(nn.Module):
             norm_hi=None,
             norm_lo=None,
             split="val",
+            preload_gt_flag=False,
+            preload_sat_flag=False,
+            preload_cloud_flag=False,
     ):
         """
         Arguments:
@@ -70,13 +73,46 @@ class SatteliteEvalDataset(nn.Module):
         self.norm_hi = norm_hi
         self.norm_lo = norm_lo
 
+        self.preload_gt_flag = preload_gt_flag
+        self.preload_sat_flag = preload_sat_flag
+        self.preload_cloud_flag = preload_cloud_flag
+
         self.data_dict = {}
         self.build_data_dict()
         self.filter_by_year(years)
         self.filter_by_month(months)
         self.filter_by_empty()
 
+        if preload_gt_flag:
+            self.preload_gt()
 
+        if preload_sat_flag:
+            self.preload_sat()
+
+        if preload_cloud_flag:
+            self.preload_cloud()
+
+    def preload_gt(self):
+        for kaartblad in self.data_dict.keys():
+            gt = load_tiff(self.data_dict[kaartblad]["gt_path"])
+            self.data_dict[kaartblad]["gt_path"] = gt
+
+    def preload_sat(self):
+        for kaartblad in self.data_dict.keys():
+            satellite_images = self.data_dict[kaartblad]["satellite_images"]
+            for year in satellite_images.keys():
+                for month in satellite_images[year].keys():
+                    for day in satellite_images[year][month].keys():
+                        sat = load_tiff(satellite_images[year][month][day])[:3]
+                        self.data_dict[kaartblad]["satellite_images"][year][month][day] = sat
+    def preload_cloud(self):
+        for kaartblad in self.data_dict.keys():
+            cloud_masks = self.data_dict[kaartblad]["cloud_masks"]
+            for year in cloud_masks.keys():
+                for month in cloud_masks[year].keys():
+                    for day in cloud_masks[year][month].keys():
+                        cloud = np.array(Image.open(cloud_masks[year][month][day]))
+                        self.data_dict[kaartblad]["cloud_masks"][year][month][day] = cloud
     def build_data_dict(self):
         print("Building the data dictionary...")
         for gt_file in os.listdir(self.gt_dir):
@@ -204,15 +240,25 @@ class SatteliteEvalDataset(nn.Module):
             # month = "03"
             # day = "23"
 
-            print(f"Kaartblad: {kaartblad}; Year: {year}; Month: {month}; Day: {day}")
+            # print(f"Debugging: Kaartblad: {kaartblad}; Year: {year}; Month: {month}; Day: {day}")
 
-            gt_path = self.data_dict[kaartblad]["gt_path"]
-            sat_path = self.data_dict[kaartblad]["satellite_images"][year][month][day]
-            cloud_path = self.data_dict[kaartblad]["cloud_masks"][year][month][day]
+            if self.preload_gt_flag:
+                gt = self.data_dict[kaartblad]["gt_path"]
+            else:
+                gt_path = self.data_dict[kaartblad]["gt_path"]
+                gt = load_tiff(gt_path)
 
-            gt = load_tiff(gt_path)
-            sat = load_tiff(sat_path)[:3]
-            cloud_mask = np.array(Image.open(cloud_path))
+            if self.preload_sat_flag:
+                sat = self.data_dict[kaartblad]["satellite_images"][year][month][day]  # we already took [:3]
+            else:
+                sat_path = self.data_dict[kaartblad]["satellite_images"][year][month][day]
+                sat = load_tiff(sat_path)[:3]
+
+            if self.preload_cloud_flag:
+                cloud_mask = self.data_dict[kaartblad]["cloud_masks"][year][month][day]
+            else:
+                cloud_path = self.data_dict[kaartblad]["cloud_masks"][year][month][day]
+                cloud_mask = np.array(Image.open(cloud_path))
 
             gtshp = gt.shape
             satshp = sat.shape

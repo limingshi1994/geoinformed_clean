@@ -57,8 +57,8 @@ def parse_args():
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
-    parser.add_argument('--num_classes', default=15, type=int,
-                        help='number of classes')
+    parser.add_argument('--num_classes', default=14, type=int,
+                        help='number of classes (valid classes only - no clouds or unlabeled)')
     parser.add_argument('--input_w', default=256, type=int,
                         help='image width')
     parser.add_argument('--input_h', default=256, type=int,
@@ -106,7 +106,7 @@ def parse_args():
     parser.add_argument('--early_stopping', default=-1, type=int,
                         metavar='N', help='early stopping (default: -1)')
     
-    parser.add_argument('--num_workers', default=1, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
     
     #traindataset
     parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
@@ -135,6 +135,12 @@ def parse_args():
     )
 
     parser.add_argument('-calib', '--ifcalibration', default=False, type=str2bool, help='if apply calibration to model')
+
+    # Preloading data to speed up data loading at the expense of RAM consumption
+    parser.add_argument('-plsf', '--preload_sat_flag', default=True, action="store_true", help='whether to preload satellite images')
+    parser.add_argument('-plgf', '--preload_gt_flag', default=True, action="store_true", help='whether to preload ground truth')
+    parser.add_argument('-plcf', '--preload_cloud_flag', default=True, action="store_true", help='whether to preload cloud masks')
+
 
     config = parser.parse_args()
 
@@ -189,8 +195,6 @@ def check_args(args):
 
 
 
-
-
 def train(config, train_loader, model, criterion, optimizer):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Current device: {device}")
@@ -213,6 +217,12 @@ def train(config, train_loader, model, criterion, optimizer):
         valid_mask = sample["valid_mask"]
         cloud_mask = sample["cloud_mask"]
         label_mask = sample["label_mask"]
+
+        # vvv HACK vvv
+        # Works because we apply valid_mask on both the loss and the metric
+        # gt - subtact one from all valid pixel labels
+        gt[gt > 0] = gt[gt > 0] - 1
+        # ^^^ HACK ^^^
         gt = make_one_hot(gt, config['num_classes'])
 
         input = sat.to(device)
@@ -285,6 +295,13 @@ def validate(config, val_loader, model, criterion):
             valid_mask = sample["valid_mask"]
             cloud_mask = sample["cloud_mask"]
             label_mask = sample["label_mask"]
+
+            # vvv HACK vvv
+            # Works because we apply valid_mask on both the loss and the metric
+            # gt - subtact one from all valid pixel labels
+            gt[gt > 0] = gt[gt > 0] - 1
+            # ^^^ HACK ^^^
+
             gt = make_one_hot(gt, config['num_classes'])
 
             input = sat.to(device)
@@ -321,7 +338,7 @@ def validate(config, val_loader, model, criterion):
             # release some GPU space
             torch.cuda.empty_cache()
             # sample times
-            if counter == config['val_samples']:
+            if counter == config['val_batches']:
                 break
             else:
                 counter = counter + 1
@@ -411,7 +428,10 @@ def main():
         patch_size=patch_size,
         norm_hi=norm_hi,
         norm_lo=norm_lo,
-        split="train"
+        split="train",
+        preload_sat_flag=config['preload_sat_flag'],
+        preload_gt_flag=config['preload_gt_flag'],
+        preload_cloud_flag=config['preload_cloud_flag'],
     )
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, 
@@ -446,7 +466,10 @@ def main():
         patch_size=vpatch_size,
         norm_hi=norm_hi,
         norm_lo=norm_lo,
-        split="val"
+        split="val",
+        preload_sat_flag=config['preload_sat_flag'],
+        preload_gt_flag=config['preload_gt_flag'],
+        preload_cloud_flag=config['preload_cloud_flag'],
         )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, 
