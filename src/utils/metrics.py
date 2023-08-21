@@ -54,8 +54,19 @@ def pixel_accuracy(output, target, **kwargs):
     output = torch.softmax(output, dim=1)
     predicted = torch.argmax(output, dim=1)
     label = torch.argmax(target, dim=1)
-    correct = (predicted == label).float()
+
     if mask is not None:
-        correct = correct * mask.squeeze(1)
-    correct = correct.view(bs, -1).mean(dim=1).detach().cpu().numpy()
+        # Comparing predicted and label only where mask_tensor is True
+        correct_where_valid = (predicted == label) & (mask.squeeze(1))
+        correct = correct_where_valid.float()
+    else:
+        correct = (predicted == label).float()
+        correct = correct * (mask.squeeze(1))
+
+    # Exclude the invalid pixels from calculation of correctness : correct_where_valid/valid_pixels
+    if mask is not None:
+        correct = correct.sum().item() / mask.float().sum().item()
+    else:
+        correct = correct.view(bs, -1).mean(dim=1).detach().cpu().numpy()
+
     return correct

@@ -32,6 +32,7 @@ class CELoss(nn.Module):
             mask = kwargs["mask"]
         else:
             mask = None
+
         label = torch.argmax(target, dim=1)
         ce_loss = self.base_loss(input, label)
         if mask is not None:

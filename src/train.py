@@ -40,9 +40,9 @@ def parse_args():
                         help='number of total samples we take during one train epoch')
     parser.add_argument('--val_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
-    parser.add_argument('-b', '--train_batch_size', default=16, type=int,
+    parser.add_argument('-b', '--train_batch_size', default=15, type=int,
                         metavar='N', help='train-batch size (default: 16)')
-    parser.add_argument('-vb', '--val_batch_size', default=16, type=int,
+    parser.add_argument('-vb', '--val_batch_size', default=15, type=int,
                         metavar='N', help='validation-batch size (default: 50)')
     
     # storing outputs
@@ -54,7 +54,7 @@ def parse_args():
                         help='model architecture: ' +
                         ' | '.join(ARCH_NAMES) +
                         ' (default: NestedUNet)')
-    parser.add_argument('--deep_supervision', default=False, type=str2bool)
+    parser.add_argument('--deep_supervision', default=True, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=14, type=int,
@@ -234,10 +234,13 @@ def train(config, train_loader, model, criterion, optimizer):
             outputs = model(input)
             loss = 0
             for output in outputs:
-                loss += criterion(output, target)
+                loss, loss_track = criterion(output, target, mask=valid_mask)
+                loss += loss
+                loss_track += loss_track
             loss /= len(outputs)
-            iou = iou_score(outputs[-1], target)
-            acc = pixel_accuracy(output[-1], target)
+            loss_track /= len(outputs)
+            iou = iou_score(outputs[-1], target, mask=valid_mask)
+            acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
         else:
             output = model(input)
             loss, loss_track = criterion(output, target, mask=valid_mask)
@@ -312,10 +315,13 @@ def validate(config, val_loader, model, criterion):
                 outputs = model(input)
                 loss = 0
                 for output in outputs:
-                    loss += criterion(output, target)
+                    loss, loss_track = criterion(output, target, mask=valid_mask)
+                    loss += loss
+                    loss_track += loss_track
                 loss /= len(outputs)
-                iou = iou_score(outputs[-1], target)
-                acc = pixel_accuracy(outputs[-1], target)
+                loss_track /= len(outputs)
+                iou = iou_score(outputs[-1], target, mask=valid_mask)
+                acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
             else:
                 output = model(input)
                 loss, loss_track = criterion(output, target, mask=valid_mask)
