@@ -241,6 +241,7 @@ def train(config, train_loader, model, criterion, optimizer):
             loss_track /= len(outputs)
             iou = iou_score(outputs[-1], target, mask=valid_mask)
             acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
+
         else:
             output = model(input)
             loss, loss_track = criterion(output, target, mask=valid_mask)
