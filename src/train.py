@@ -18,7 +18,7 @@ import numpy as np
 import archs
 from utils import losses
 from utils.metrics import iou_score, pixel_accuracy
-from unet_utils import AverageMeterBatched, str2bool
+from unet_utils import AverageMeterBatched, AverageSumsMeterBatched, str2bool
 from utils.train_dataset import SatteliteTrainDataset
 from utils.eval_dataset import SatteliteEvalDataset
 from utils.utils import make_one_hot
@@ -201,7 +201,7 @@ def train(config, train_loader, model, criterion, optimizer):
 
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
-                  'acc': AverageMeterBatched()}
+                  'acc': AverageSumsMeterBatched()}
 
     model.train()
     model = model.to(device)
@@ -240,13 +240,13 @@ def train(config, train_loader, model, criterion, optimizer):
             loss /= len(outputs)
             loss_track /= len(outputs)
             iou = iou_score(outputs[-1], target, mask=valid_mask)
-            acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
+            correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
 
         else:
             output = model(input)
             loss, loss_track = criterion(output, target, mask=valid_mask)
             iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-            acc = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
+            correct, valid = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -255,7 +255,7 @@ def train(config, train_loader, model, criterion, optimizer):
 
         avg_meters['loss'].update(list(loss_track))
         avg_meters['iou'].update(list(iou))
-        avg_meters['acc'].update(list(acc))
+        avg_meters['acc'].update(list(correct), list(valid))
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].report()),
@@ -284,7 +284,7 @@ def validate(config, val_loader, model, criterion):
 
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
-                  'acc': AverageMeterBatched()}
+                  'acc': AverageSumsMeterBatched()}
 
     # switch to evaluate mode
     model.eval()
@@ -322,16 +322,18 @@ def validate(config, val_loader, model, criterion):
                 loss /= len(outputs)
                 loss_track /= len(outputs)
                 iou = iou_score(outputs[-1], target, mask=valid_mask)
-                acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
+                # acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
+                correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
             else:
                 output = model(input)
                 loss, loss_track = criterion(output, target, mask=valid_mask)
                 iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-                acc = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
+                # acc = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
+                correct, valid = pixel_accuracy(output, target, mask=valid_mask)
     
             avg_meters['loss'].update(list(loss_track))
             avg_meters['iou'].update(list(iou))
-            avg_meters['acc'].update(list(acc))
+            avg_meters['acc'].update(list(correct), list(valid))
 
             postfix = OrderedDict([
                 ('loss', avg_meters['loss'].report()),
@@ -530,11 +532,18 @@ def main():
 
         pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
         trigger += 1
-        if val_log['iou'] > best_iou:
+        if val_log['val_iou'] > best_iou:
             date_time = now.strftime("%Y%m%d%H%M%S")
             torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-            best_iou = val_log['iou']
-            print("=> saved best model")
+            best_iou = val_log['val_iou']
+            print("=> saved best model for validation iou")
+            trigger = 0
+
+        if val_log['val_acc'] > best_iou:
+            date_time = now.strftime("%Y%m%d%H%M%S")
+            torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+            best_iou = val_log['val_acc']
+            print("=> saved best model for validation accuracy")
             trigger = 0
 
         # early stopping

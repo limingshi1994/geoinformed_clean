@@ -58,7 +58,9 @@ def pixel_accuracy(output, target, **kwargs):
     correct = (predicted == label).float()
     if mask is not None:
         correct = correct * mask.squeeze(1)
-        correct = (correct.view(bs, -1).sum(dim=1) / mask.view(bs, -1).sum(dim=1)).detach().cpu().numpy()
+        correct = correct.view(bs, -1).sum(dim=1).detach().cpu().numpy()
+        valid = mask.view(bs, -1).sum(dim=1).detach().cpu().numpy()
     else:
-        correct = correct.view(bs, -1).mean(dim=1).detach().cpu().numpy()
-    return correct
+        correct = correct.view(bs, -1).sum(dim=1).detach().cpu().numpy()
+        valid = torch.ones_like(correct).view(bs, -1).sum(dim=1).detach().cpu().numpy()
+    return correct, valid

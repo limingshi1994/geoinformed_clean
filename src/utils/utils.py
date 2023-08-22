@@ -56,7 +56,7 @@ def find_percentiles(data, invalid_mask, min_percentile=1, max_percentile=99):
 def find_valid_pixels(data, invalid_mask):
     valid_mask = ~invalid_mask
     if len(valid_mask.shape) == 2:
-        classification = np.expand_dims(classification, axis=0)
+        data = np.expand_dims(data, axis=0)
     if valid_mask.shape[0] != data.shape[0]:
         valid_mask = valid_mask.repeat(data.shape[0], axis=0)
     values = []

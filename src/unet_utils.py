@@ -46,3 +46,21 @@ class AverageMeterBatched(object):
 
     def report(self):
         return sum(self.values) / len(self.values)
+
+class AverageSumsMeterBatched(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.values = []
+        self.valids = []
+
+    def reset(self):
+        self.values = []
+        self.valids = []
+
+    def update(self, val, valid):
+        self.values.extend(val)
+        self.valids.extend(valid)
+
+    def report(self):
+        return sum(self.values) / sum(self.valids)
