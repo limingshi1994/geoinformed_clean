@@ -504,6 +504,7 @@ def main():
     ])
 
     best_iou = 0
+    best_acc = 0
     trigger = 0
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
@@ -532,17 +533,17 @@ def main():
 
         pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
         trigger += 1
-        if val_log['val_iou'] > best_iou:
-            date_time = now.strftime("%Y%m%d%H%M%S")
-            torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-            best_iou = val_log['val_iou']
-            print("=> saved best model for validation iou")
-            trigger = 0
+        # if val_log['iou'] > best_iou:
+        #     date_time = now.strftime("%Y%m%d%H%M%S")
+        #     torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+        #     best_iou = val_log['iou']
+        #     print("=> saved best model for validation iou")
+        #     trigger = 0
 
-        if val_log['val_acc'] > best_iou:
+        if val_log['acc'] > best_acc:
             date_time = now.strftime("%Y%m%d%H%M%S")
             torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-            best_iou = val_log['val_acc']
+            best_acc = val_log['acc']
             print("=> saved best model for validation accuracy")
             trigger = 0
 
