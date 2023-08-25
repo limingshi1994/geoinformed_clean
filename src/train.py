@@ -60,7 +60,7 @@ def parse_args():
                         help='model architecture: ' +
                         ' | '.join(ARCH_NAMES) +
                         ' (default: NestedUNet)')
-    parser.add_argument('--deep_supervision', default=True, type=str2bool)
+    parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=14, type=int,
