@@ -1,9 +1,13 @@
 import argparse
 import os
 import matplotlib
+import sys
+sys.path.append('../outsourced_models/segmentation_models.pytorch')
 matplotlib.use('Agg')  # Set the backend before importing pyplot
 from collections import OrderedDict
 from datetime import datetime
+
+import segmentation_models_pytorch as smp
 
 import pandas as pd
 import torch
@@ -49,6 +53,8 @@ def parse_args():
     parser.add_argument("-o", "--output-dir", default='../outputs', type=str, required=False)
 
     # model
+    parser.add_argument('--outarch', '-oa', default='DeepLabV3Plus',
+                        help='choose which outsourced architecture to be used')
     parser.add_argument('--arch', '-a', metavar='ARCH', default='NestedUNet',
                         choices=ARCH_NAMES,
                         help='model architecture: ' +
@@ -385,7 +391,16 @@ def main():
 
     # create model
     print("=> creating model %s" % config['arch'])
-    model = archs.__dict__[config['arch']](config['num_classes'],
+    if config['outarch'] is not None:
+        architecture = getattr(smp, config['outarch'])
+        model = architecture(
+            encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+            encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
+            in_channels=3,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+            classes=14,                      # model output channels (number of classes in your dataset)
+         )
+    else:
+        model = archs.__dict__[config['arch']](config['num_classes'],
                                            config['input_channels'],
                                            config['deep_supervision'])
 
