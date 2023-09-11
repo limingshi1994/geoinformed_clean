@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-__all__ = ['UNet', 'NestedUNet']
+__all__ = ['UNet', 'NestedUNet', 'CustomUNet']
 
 
 class VGGBlock(nn.Module):
@@ -62,6 +62,47 @@ class UNet(nn.Module):
 
         output = self.final(x0_4)
         return output
+
+
+class CustomUNet(nn.Module):
+    def __init__(self, num_classes, input_channels=3, nb_filter=[32, 64, 128]):
+        super().__init__()
+
+        self.pool = nn.MaxPool2d(2, 2)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+        self.down_convs = nn.ModuleList()
+        self.up_convs = nn.ModuleList()
+        self.encoder_states = []
+
+        self.initial = VGGBlock(input_channels, nb_filter[0], nb_filter[0])
+
+        # Encoding path
+        for i in range(len(nb_filter) - 1):
+            self.down_convs.append(VGGBlock(nb_filter[i], nb_filter[i+1], nb_filter[i+1]))
+            self.up_convs.append(VGGBlock(nb_filter[i]+nb_filter[i+1], nb_filter[i], nb_filter[i]))
+
+        self.up_convs = self.up_convs[::-1]  # reverse the order
+        self.final = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
+
+    def forward(self, x):
+        encoder_states = []
+        x = self.initial(x)
+
+        # Encoder path
+        for down_conv in self.down_convs:
+            encoder_states.append(x)
+            x = down_conv(self.pool(x))
+
+        # Decoder path
+        for i, up_conv in enumerate(self.up_convs):
+            x = self.up(x)
+            x = torch.cat([x, encoder_states[-(i+1)]], 1)
+            x = up_conv(x)
+
+        x = self.final(x)
+        return x
+
 
 
 class NestedUNet(nn.Module):

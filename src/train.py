@@ -38,28 +38,33 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=50, type=int, metavar='N',
+    parser.add_argument('--epochs', default=500, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
     parser.add_argument('--train_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
     parser.add_argument('--val_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
-    parser.add_argument('-b', '--train_batch_size', default=15, type=int,
+    parser.add_argument('-b', '--train_batch_size', default=8, type=int,
                         metavar='N', help='train-batch size (default: 16)')
-    parser.add_argument('-vb', '--val_batch_size', default=15, type=int,
+    parser.add_argument('-vb', '--val_batch_size', default=8, type=int,
                         metavar='N', help='validation-batch size (default: 50)')
     
     # storing outputs
     parser.add_argument("-o", "--output-dir", default='../outputs', type=str, required=False)
 
     # model
-    parser.add_argument('--outarch', '-oa', default='DeepLabV3Plus',
+    parser.add_argument('--outarch', '-oa', default='Unet',
                         help='choose which outsourced architecture to be used')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='NestedUNet',
+    parser.add_argument('--encoder', '-enc', default='timm-regnety_320',
+                        help='choose which encoder to be used')
+    parser.add_argument('--encoder_weights', '-encw', default='imagenet',
+                        help='choose which dataset to be used for pretrained weights')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='CustomUNet',
                         choices=ARCH_NAMES,
                         help='model architecture: ' +
                         ' | '.join(ARCH_NAMES) +
                         ' (default: NestedUNet)')
+    parser.add_argument('--nb_filters', nargs='+', default=[16,32,64],type=int)
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
@@ -394,15 +399,39 @@ def main():
     if config['outarch'] is not None:
         architecture = getattr(smp, config['outarch'])
         model = architecture(
-            encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
+            encoder_name=config['encoder'],        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+            encoder_weights=config['encoder_weights'],     # use `imagenet` pre-trained weights for encoder initialization
             in_channels=3,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
             classes=14,                      # model output channels (number of classes in your dataset)
          )
+        if not os.path.exists(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"):
+            os.makedirs(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
+
+    elif config['arch'] == 'CustomUNet':
+        model = archs.__dict__[config['arch']](config['num_classes'],
+                                           config['input_channels'],
+                                           config['nb_filters'])
+        if not os.path.exists(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"):
+            os.makedirs(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
+
     else:
         model = archs.__dict__[config['arch']](config['num_classes'],
                                            config['input_channels'],
                                            config['deep_supervision'])
+        if not os.path.exists(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"):
+            os.makedirs(
+                f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
+
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total number of parameters: {total_params}")
+    print(f"Total number of trainable parameters: {trainable_params}")
 
     params = filter(lambda p: p.requires_grad, model.parameters())
     if config['optimizer'] == 'Adam':
@@ -427,13 +456,15 @@ def main():
     else:
         raise NotImplementedError
     
-    if not os.path.exists(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"):
-        os.makedirs(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
 
     now = datetime.now()
     date_time = now.strftime("%Y%m%d%H%M%S")
-    with open(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/config_{date_time}.yml", 'w') as f:
-        yaml.dump(config, f)
+    if config['outarch'] is not None:
+        with open(f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/config_{date_time}.yml", 'w') as f:
+            yaml.dump(config, f)
+    else:
+        with open(f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/config_{date_time}.yml", 'w') as f:
+            yaml.dump(config, f)
 
     kaartbladen = config['kaartbladen']
     years = config['years']
@@ -507,16 +538,19 @@ def main():
     vvalid_mask = vsample["valid_mask"]
     print(vsat.shape, vgt.shape, vvalid_mask.shape)
     
-    log = OrderedDict([
-        ('epoch', []),
-        ('lr', []),
-        ('loss', []),
-        ('iou', []),
-        ('acc', []),
-        ('val_loss', []),
-        ('val_iou', []),
-        ('val_acc', [])
-    ])
+    # log = OrderedDict([
+    #     ('epoch', []),
+    #     ('lr', []),
+    #     ('loss', []),
+    #     ('iou', []),
+    #     ('acc', []),
+    #     ('val_loss', []),
+    #     ('val_iou', []),
+    #     ('val_acc', [])
+    # ])
+
+    keys = ['epoch', 'lr', 'loss', 'iou', 'acc', 'val_loss', 'val_iou', 'val_acc']
+    log = {key: [] for key in keys}
 
     best_iou = 0
     best_acc = 0
@@ -546,26 +580,40 @@ def main():
         log['val_iou'].append(val_log['iou'])
         log['val_acc'].append(val_log['acc'])
 
-        pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
-        trigger += 1
-        # if val_log['iou'] > best_iou:
-        #     date_time = now.strftime("%Y%m%d%H%M%S")
-        #     torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-        #     best_iou = val_log['iou']
-        #     print("=> saved best model for validation iou")
-        #     trigger = 0
+        if config['outarch'] is not None:
+            pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
 
-        if val_log['acc'] > best_acc:
-            date_time = now.strftime("%Y%m%d%H%M%S")
-            torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-            best_acc = val_log['acc']
-            print("=> saved best model for validation accuracy")
-            trigger = 0
+            trigger += 1
 
-        # early stopping
-        if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
-            print("=> early stopping")
-            break
+            if val_log['acc'] > best_acc:
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+                best_acc = val_log['acc']
+                print("=> saved best model for validation accuracy")
+                trigger = 0
+
+            # early stopping
+            if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
+                print("=> early stopping")
+                break
+
+        else:
+            pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
+
+            trigger += 1
+
+            if val_log['acc'] > best_acc:
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                torch.save(model.state_dict(),
+                           f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+                best_acc = val_log['acc']
+                print("=> saved best model for validation accuracy")
+                trigger = 0
+
+            # early stopping
+            if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
+                print("=> early stopping")
+                break
 
         torch.cuda.empty_cache()
 
