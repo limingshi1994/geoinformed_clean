@@ -1,5 +1,6 @@
 import argparse
 import os
+import glob
 import matplotlib
 import sys
 sys.path.append('../outsourced_models/segmentation_models.pytorch')
@@ -21,8 +22,8 @@ import numpy as np
 
 import archs
 from utils import losses
-from utils.metrics import iou_score, pixel_accuracy
-from unet_utils import AverageMeterBatched, AverageSumsMeterBatched, str2bool
+from utils.metrics import iou_score, pixel_accuracy, calculate_ece
+from unet_utils import AverageMeterBatched, AverageSumsMeterBatched, EceMeter, str2bool
 from utils.train_dataset import SatteliteTrainDataset
 from utils.eval_dataset import SatteliteEvalDataset
 from utils.utils import make_one_hot
@@ -38,7 +39,7 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=500, type=int, metavar='N',
+    parser.add_argument('--epochs', default=1000, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
     parser.add_argument('--train_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
@@ -53,9 +54,15 @@ def parse_args():
     parser.add_argument("-o", "--output-dir", default='../outputs', type=str, required=False)
 
     # model
+    parser.add_argument(
+        "--continue_train",
+        "-cont",
+        default=False,
+        type=str2bool
+    )
     parser.add_argument('--outarch', '-oa', default='Unet',
                         help='choose which outsourced architecture to be used')
-    parser.add_argument('--encoder', '-enc', default='timm-regnety_320',
+    parser.add_argument('--encoder', '-enc', default='timm-regnety_040',
                         help='choose which encoder to be used')
     parser.add_argument('--encoder_weights', '-encw', default='imagenet',
                         help='choose which dataset to be used for pretrained weights')
@@ -91,7 +98,7 @@ def parse_args():
                         help='mask file extension')
 
     # optimizer
-    parser.add_argument('--optimizer', default='SGD',
+    parser.add_argument('--optimizer', default='Adam',
                         choices=['Adam', 'SGD'],
                         help='loss: ' +
                         ' | '.join(['Adam', 'SGD']) +
@@ -148,7 +155,7 @@ def parse_args():
     parser.add_argument('-calib', '--ifcalibration', default=False, type=str2bool, help='if apply calibration to model')
 
     # Preloading data to speed up data loading at the expense of RAM consumption
-    parser.add_argument('-plsf', '--preload_sat_flag', default=True, action="store_true", help='whether to preload satellite images')
+    parser.add_argument('-plsf', '--preload_sat_flag', default=False, action="store_true", help='whether to preload satellite images')
     parser.add_argument('-plgf', '--preload_gt_flag', default=True, action="store_true", help='whether to preload ground truth')
     parser.add_argument('-plcf', '--preload_cloud_flag', default=True, action="store_true", help='whether to preload cloud masks')
 
@@ -206,16 +213,17 @@ def check_args(args):
 
 
 
-def train(config, train_loader, model, criterion, optimizer):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Current device: {device}")
+def train(config, train_loader, model, criterion, optimizer, device):
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(f"Current device: {device}")
 
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
-                  'acc': AverageSumsMeterBatched()}
+                  'acc': AverageSumsMeterBatched(),
+                  'ece': EceMeter()}
 
     model.train()
-    model = model.to(device)
+    # model = model.to(device)
     print("train starts:")
     # since the training data is generated on the go,
     # sample as many times as we need in one epoch, the number of samples in one epoch is user defined
@@ -253,11 +261,13 @@ def train(config, train_loader, model, criterion, optimizer):
             iou = iou_score(outputs[-1], target, mask=valid_mask)
             correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
 
+
         else:
             output = model(input)
             loss, loss_track = criterion(output, target, mask=valid_mask)
             iou = iou_score(output, target, mask=valid_mask)  # shape: bs
             correct, valid = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
+            ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -267,11 +277,13 @@ def train(config, train_loader, model, criterion, optimizer):
         avg_meters['loss'].update(list(loss_track))
         avg_meters['iou'].update(list(iou))
         avg_meters['acc'].update(list(correct), list(valid))
+        avg_meters['ece'].update(ece, sum(ece_valid))
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].report()),
             ('iou', avg_meters['iou'].report()),
-            ('acc', avg_meters['acc'].report())
+            ('acc', avg_meters['acc'].report()),
+            ('ece', avg_meters['ece'].report())
         ])
         pbar.set_postfix(postfix)
         pbar.update(1)
@@ -286,20 +298,22 @@ def train(config, train_loader, model, criterion, optimizer):
 
     return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
-                        ('acc', avg_meters['acc'].report())])
+                        ('acc', avg_meters['acc'].report()),
+                        ('ece', avg_meters['ece'].report())])
 
 
-def validate(config, val_loader, model, criterion):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Current device: {device}")
+def validate(config, val_loader, model, criterion, device):
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(f"Current device: {device}")
 
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
-                  'acc': AverageSumsMeterBatched()}
+                  'acc': AverageSumsMeterBatched(),
+                  'ece': EceMeter()}
 
     # switch to evaluate mode
     model.eval()
-    model = model.to(device)
+    # model = model.to(device)
     print("validation starts:")
     with torch.no_grad():
         pbar = tqdm(total=config['val_batches'], position=0, leave=True)
@@ -333,23 +347,26 @@ def validate(config, val_loader, model, criterion):
                 loss /= len(outputs)
                 loss_track /= len(outputs)
                 iou = iou_score(outputs[-1], target, mask=valid_mask)
-                # acc = pixel_accuracy(outputs[-1], target, mask=valid_mask)
                 correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
             else:
                 output = model(input)
                 loss, loss_track = criterion(output, target, mask=valid_mask)
                 iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-                # acc = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
                 correct, valid = pixel_accuracy(output, target, mask=valid_mask)
+                ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
+
     
             avg_meters['loss'].update(list(loss_track))
             avg_meters['iou'].update(list(iou))
             avg_meters['acc'].update(list(correct), list(valid))
+            avg_meters["ece"].update(ece, sum(ece_valid))
+
 
             postfix = OrderedDict([
                 ('loss', avg_meters['loss'].report()),
                 ('iou', avg_meters['iou'].report()),
                 ('acc', avg_meters['acc'].report()),
+                ('ece', avg_meters['ece'].report())
             ])
 
             #update after all batches have gone through the model
@@ -366,7 +383,8 @@ def validate(config, val_loader, model, criterion):
 
     return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
-                        ('acc', avg_meters['acc'].report())])
+                        ('acc', avg_meters['acc'].report()),
+                        ('ece', avg_meters['ece'].report())])
 
 
 def main():
@@ -396,7 +414,54 @@ def main():
 
     # create model
     print("=> creating model %s" % config['arch'])
-    if config['outarch'] is not None:
+    if config['continue_train'] is True:
+        if config['outarch'] is not None:
+            architecture = getattr(smp, config['outarch'])
+            model = architecture(
+                encoder_name=config["encoder"],  # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+                encoder_weights=config["encoder_weights"],  # use `imagenet` pre-trained weights for encoder initialization
+                in_channels=3,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+                classes=14,  # model output channels (number of classes in your dataset)
+            )
+            model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
+            pths = glob.glob(model_dir + "/*.pth")
+            pths.sort(key=os.path.getmtime, reverse=True)
+            pth = pths[0]
+            checkpoint = torch.load(pth)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            old_epoch = checkpoint["epoch"]
+            old_epoch += 1
+            old_loss = checkpoint["loss"]
+
+        elif config['arch'] == 'CustomUNet':
+            model = archs.__dict__[config['arch']](config['num_classes'],
+                                           config['input_channels'],
+                                           config['nb_filters'])
+            model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
+            pths = glob.glob(model_dir + "/*.pth")
+            pths.sort(key=os.path.getmtime, reverse=True)
+            pth = pths[0]
+            checkpoint = torch.load(pth)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            old_epoch = checkpoint["epoch"]
+            old_epoch += 1
+            old_loss = checkpoint["loss"]
+
+        else:
+            model = archs.__dict__[config['arch']](config['num_classes'],
+                                                   config['input_channels'],
+                                                   config['deep_supervision'])
+            model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
+            pths = glob.glob(model_dir + "/*.pth")
+            pths.sort(key=os.path.getmtime, reverse=True)
+            pth = pths[0]
+            checkpoint = torch.load(pth)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            old_epoch = checkpoint["epoch"]
+            old_epoch += 1
+            old_loss = checkpoint["loss"]
+
+    elif config['outarch'] is not None:
         architecture = getattr(smp, config['outarch'])
         model = architecture(
             encoder_name=config['encoder'],        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
@@ -427,6 +492,10 @@ def main():
             os.makedirs(
                 f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Current device: {device}")
+    model = model.to(device)
+
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -434,12 +503,19 @@ def main():
     print(f"Total number of trainable parameters: {trainable_params}")
 
     params = filter(lambda p: p.requires_grad, model.parameters())
+
+
     if config['optimizer'] == 'Adam':
         optimizer = optim.Adam(
             params, lr=config['lr'], weight_decay=config['weight_decay'])
+        if config['continue_train'] is True:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
     elif config['optimizer'] == 'SGD':
         optimizer = optim.SGD(params, lr=config['lr'], momentum=config['momentum'],
                               nesterov=config['nesterov'], weight_decay=config['weight_decay'])
+        if config['continue_train'] is True:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     else:
         raise NotImplementedError
 
@@ -455,7 +531,7 @@ def main():
         scheduler = None
     else:
         raise NotImplementedError
-    
+
 
     now = datetime.now()
     date_time = now.strftime("%Y%m%d%H%M%S")
@@ -549,71 +625,201 @@ def main():
     #     ('val_acc', [])
     # ])
 
-    keys = ['epoch', 'lr', 'loss', 'iou', 'acc', 'val_loss', 'val_iou', 'val_acc']
+    keys = ['epoch', 'lr', 'loss', 'iou', 'acc', 'ece', 'val_loss', 'val_iou', 'val_acc', 'val_ece']
     log = {key: [] for key in keys}
 
     best_iou = 0
     best_acc = 0
     trigger = 0
-    for epoch in range(config['epochs']):
+
+    if config['continue_train'] is True:
+        loop_list = range(old_epoch, config['epochs'])
+    else:
+        loop_list = range(config['epochs'])
+
+    for epoch in loop_list:
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
         # train for one epoch
-        train_log = train(config, train_dataloader, model, criterion, optimizer)
+        train_log = train(config, train_dataloader, model, criterion, optimizer, device)
         # evaluate on validation set
-        val_log = validate(config, val_dataloader, model, criterion)
+        val_log = validate(config, val_dataloader, model, criterion, device)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
 
-        print('loss %.4f - iou %.4f - acc %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f'
-              % (train_log['loss'], train_log['iou'], train_log['acc'], val_log['loss'], val_log['iou'], val_log['acc']))
+        print('loss %.4f - iou %.4f - acc %.4f - ece %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f - val_ece %.4f'
+              % (train_log['loss'], train_log['iou'], train_log['acc'], train_log['ece'], val_log['loss'], val_log['iou'], val_log['acc'], val_log['ece']))
 
         log['epoch'].append(epoch)
         log['lr'].append(config['lr'])
         log['loss'].append(train_log['loss'])
         log['iou'].append(train_log['iou'])
         log['acc'].append(train_log['acc'])
+        log['ece'].append(train_log['ece'])
         log['val_loss'].append(val_log['loss'])
         log['val_iou'].append(val_log['iou'])
         log['val_acc'].append(val_log['acc'])
+        log['val_ece'].append(val_log['ece'])
 
-        if config['outarch'] is not None:
-            pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
 
-            trigger += 1
+        if config['continue_train'] is True:
+            if config['outarch'] is not None:
+                model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
+                csvs = glob.glob(model_dir + "/*.csv")
+                csvs.sort(key=os.path.getmtime, reverse=True)
+                csv = csvs[0]
+                pd.DataFrame(log).to_csv(csv, mode='a', header=False)
 
-            if val_log['acc'] > best_acc:
+                trigger += 1
+                
+                if val_log["acc"] > best_acc:
+                    date_time = now.strftime("%Y%m%d%H%M%S")
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "loss": train_log["loss"],
+                        },
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                    )
+                    best_acc = val_log["acc"]
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
                 date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-                best_acc = val_log['acc']
-                print("=> saved best model for validation accuracy")
-                trigger = 0
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": train_log["loss"],
+                    },
+                    f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
+                )
+                
+                # early stopping
+                if config["early_stopping"] >= 0 and trigger >= config["early_stopping"]:
+                    print("=> early stopping")
+                    break
+            else:
+                model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
+                csvs = glob.glob(model_dir + "/*.csv")
+                csvs.sort(key=os.path.getmtime, reverse=True)
+                csv = csvs[0]
+                pd.DataFrame(log).to_csv(csv, mode='a', header=False)
 
-            # early stopping
-            if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
-                print("=> early stopping")
-                break
+                trigger += 1
+
+                if val_log['acc'] > best_acc:
+                    date_time = now.strftime("%Y%m%d%H%M%S")
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "loss": train_log["loss"],
+                        },
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                    )
+                    best_acc = val_log['acc']
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": train_log["loss"],
+                    },
+                    f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
+                )
+
+                # early stopping
+                if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
+                    print("=> early stopping")
+                    break
 
         else:
-            pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
 
-            trigger += 1
+            if config['outarch'] is not None:
+                pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
 
-            if val_log['acc'] > best_acc:
+                trigger += 1
+
+                if val_log['acc'] > best_acc:
+                    date_time = now.strftime("%Y%m%d%H%M%S")
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "loss": train_log['loss'],
+                        },
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                    )
+
+                    #torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+                    best_acc = val_log['acc']
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
                 date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(model.state_dict(),
-                           f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-                best_acc = val_log['acc']
-                print("=> saved best model for validation accuracy")
-                trigger = 0
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": train_log["loss"],
+                    },
+                    f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
+                )
 
-            # early stopping
-            if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
-                print("=> early stopping")
-                break
+                # early stopping
+                if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
+                    print("=> early stopping")
+                    break
+
+            else:
+                pd.DataFrame(log).to_csv(f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/log_{date_time}.csv")
+
+                trigger += 1
+
+                if val_log['acc'] > best_acc:
+                    date_time = now.strftime("%Y%m%d%H%M%S")
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "loss": train_log["loss"],
+                        },
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth"
+                    )
+                    best_acc = val_log['acc']
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": train_log["loss"],
+                    },
+                    f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
+                )
+
+                # early stopping
+                if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
+                    print("=> early stopping")
+                    break
 
         torch.cuda.empty_cache()
 

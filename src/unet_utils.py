@@ -64,3 +64,29 @@ class AverageSumsMeterBatched(object):
 
     def report(self):
         return sum(self.values) / sum(self.valids)
+
+class EceMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.ece_values = []
+        self.valids = []
+        self.avg_ece = 0
+        self.ece_all = 0
+
+    def reset(self):
+        self.ece_values = []
+        self.valids = []
+        self.avg_ece = 0
+        self.ece_all = 0
+
+    def update(self, val, valid):
+        self.ece_values.append(val)
+        self.valids.append(valid)
+
+    def report(self):
+        self.ece_all = 0
+        for i in range(len(self.ece_values)):
+            self.ece_all += self.ece_values[i] * self.valids[i]
+        self.avg_ece = self.ece_all / (sum(self.valids))
+        return self.avg_ece
