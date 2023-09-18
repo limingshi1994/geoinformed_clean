@@ -185,6 +185,8 @@ models/*
 resources/*
 !resources/.gitkeep
 notebooks/*
+!notebooks/Result_curves.ipynb
+!notebooks/result_overlay.ipynb
 !notebooks/.gitkeep
 *.zip
 src/check_img_dump.py
