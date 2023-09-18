@@ -41,9 +41,9 @@ def parse_args():
                         help='model name: (default: arch+timestamp)')
     parser.add_argument('--epochs', default=1000, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
-    parser.add_argument('--train_batches', default=100, type=int, metavar='N',
+    parser.add_argument('--train_batches', default=5, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
-    parser.add_argument('--val_batches', default=100, type=int, metavar='N',
+    parser.add_argument('--val_batches', default=5, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
     parser.add_argument('-b', '--train_batch_size', default=8, type=int,
                         metavar='N', help='train-batch size (default: 16)')
@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument(
         "--continue_train",
         "-cont",
-        default=False,
+        default=True,
         type=str2bool
     )
     parser.add_argument('--outarch', '-oa', default='Unet',
@@ -671,7 +671,7 @@ def main():
                 csvs = glob.glob(model_dir + "/*.csv")
                 csvs.sort(key=os.path.getmtime, reverse=True)
                 csv = csvs[0]
-                pd.DataFrame(log).to_csv(csv, mode='a', header=False)
+                pd.DataFrame(log).iloc[-1:].to_csv(csv, mode='a', header=False)
 
                 trigger += 1
                 
@@ -710,7 +710,7 @@ def main():
                 csvs = glob.glob(model_dir + "/*.csv")
                 csvs.sort(key=os.path.getmtime, reverse=True)
                 csv = csvs[0]
-                pd.DataFrame(log).to_csv(csv, mode='a', header=False)
+                pd.DataFrame(log).iloc[-1:].to_csv(csv, mode='a', header=False)
 
                 trigger += 1
 
