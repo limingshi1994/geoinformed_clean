@@ -1,4 +1,4 @@
-# GeoInformed
+# GeoInformed (deprecated)
 
 The following sequence of actions should be performed in order to prepare the data
 
