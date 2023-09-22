@@ -233,6 +233,15 @@ class SatteliteEvalDataset(nn.Module):
             )
             day = random.choice(days)
 
+            # Hardcoding for comparison
+            # year = "2022"
+            # month = "03"
+            # day = "26"
+            # Random coords: 1299, 707
+
+
+            # print(f"Year: {year}, month: {month}, day: {day}")
+
             # For debugging
             # print(f"Debugging: Kaartblad: kaartblad_3_5-6; Year: 2022; Month: 03; Day: 23")
             # kaartblad = "kaartblad_3_5-6"
@@ -311,6 +320,8 @@ class SatteliteEvalDataset(nn.Module):
             # If there is at least one pixel that is labeled and not clouded we break and fetch the sample
             if valid_ratio >= 0:
                 break
+            else:
+                print("Let's try again...")
 
         sample = {
             "gt": gt,

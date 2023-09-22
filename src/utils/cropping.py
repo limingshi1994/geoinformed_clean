@@ -144,6 +144,12 @@ def random_pixel_uniform_crop(
     y = random.randint(0, h_padded - height)  # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
     x = random.randint(0, w_padded - width)   # TODO: MAY NEED TO SUBTRACT 1 OR STH - TEST
 
+    # Hardcoding for comparison
+    # x = 1299
+    # y = 707
+    # print(f"Random coords: {x}, {y}")
+
+
     img = img[:, y : y + height, x : x + width]
     gt = gt[:, y : y + height, x : x + width]
     valid_mask = valid_mask[:, y : y + height, x : x + width]

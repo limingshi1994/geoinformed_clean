@@ -8,7 +8,7 @@ import segmentation_models_pytorch as smp
 
 
 def fetch_log(arch, encoder, pretrained, batch_number, batch_size, acc_or_loss='loss', log_log=False):
-    model_dir = "/esat/gebo/mli1/pycharmproj/geoinformed_clean/outputs/models/dsb2018_96_CustomUNet_woDS/"
+    model_dir = "/esat/gebo/mli1/pycharmproj/geoinformed_clean/outputs/models/backup/20230911/"
     train_name = f"arch_{arch}_enc_{encoder}_train_{batch_number}x{batch_size}_val_{batch_number}x{batch_size}"
     log_dir = model_dir + train_name
 
@@ -32,7 +32,8 @@ def fetch_log(arch, encoder, pretrained, batch_number, batch_size, acc_or_loss='
         in_channels=3,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
         classes=14,  # model output channels (number of classes in your dataset)
     )
-    model.load_state_dict(torch.load(chkpt)['model_state_dict'])
+    # model.load_state_dict(torch.load(chkpt)['model_state_dict'])
+    model.load_state_dict(torch.load(chkpt))
     model.eval()
 
     # get parameters count
