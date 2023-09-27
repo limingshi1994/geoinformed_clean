@@ -145,7 +145,7 @@ def calculate_ece(output, target, num_bins=20, **kwargs):
     predicted = torch.argmax(probs, dim=1)
     gt_label = torch.argmax(target, dim=1)
 
-    x,y,z = torch.meshgrid(torch.arange(8),torch.arange(256),torch.arange(256))
+    x,y,z = torch.meshgrid(torch.arange(bs),torch.arange(256),torch.arange(256))
     predicted_probabilities = probs[x, predicted, y, z]
 
     correct = (predicted == gt_label).float()
