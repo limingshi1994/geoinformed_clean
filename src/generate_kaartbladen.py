@@ -137,7 +137,7 @@ def main():
     subkaart_ind = subkaart_selector[split]
     kaartbladen = generate_subkaarts(kaartbladen)[subkaart_ind]
 
-    out_dir = os.path.joun(args.out_dir, split)
+    out_dir = os.path.join(args.out_dir, split)
     # temporal_extent = ("2022-03-01", "2022-05-01")
     temporal_extent = args.temporal_extent
     # bands = ["B04", "B03", "B02", "B08", "SCL"]

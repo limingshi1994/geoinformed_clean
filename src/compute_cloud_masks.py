@@ -138,8 +138,8 @@ class CloudComputer(nn.Module):
 
         self.gt_dir = f"{root_dir}/data_gt"
         self.sat_dir = f"{root_dir}/data_sat"
-        self.kaartbladen = kaartbladen
-        self.kaartbladen_names = [f"kaartblad_{item}" for item in kaartbladen]
+        #self.kaartbladen = kaartbladen
+        self.kaartbladen_names = [f"kaartblad_{item}" for item in self.kaartbladen]
         self.years = years
         self.months = months
 
