@@ -7,6 +7,7 @@ sys.path.append('../outsourced_models/segmentation_models.pytorch')
 matplotlib.use('Agg')  # Set the backend before importing pyplot
 from collections import OrderedDict
 from datetime import datetime
+import time
 
 import segmentation_models_pytorch as smp
 
@@ -19,6 +20,7 @@ import yaml
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 import numpy as np
+from accelerate import Accelerator
 
 import archs
 from utils import losses
@@ -33,13 +35,12 @@ LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<512>"
 
-
 def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=1000, type=int, metavar='N',
+    parser.add_argument('--epochs', default=3, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
     parser.add_argument('--train_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
@@ -51,7 +52,7 @@ def parse_args():
                         metavar='N', help='validation-batch size (default: 16)')
     
     # storing outputs
-    parser.add_argument("-o", "--output-dir", default='../Jan_to_Nov', type=str, required=False)
+    parser.add_argument("-o", "--output-dir", default='../outputs', type=str, required=False)
 
     # model
     parser.add_argument(
@@ -62,7 +63,7 @@ def parse_args():
     )
     parser.add_argument('--outarch', '-oa', default='Unet',
                         help='choose which outsourced architecture to be used')
-    parser.add_argument('--encoder', '-enc', default='timm-regnety_040',
+    parser.add_argument('--encoder', '-enc', default='resnext50_32x4d',
                         help='choose which encoder to be used')
     parser.add_argument('--encoder_weights', '-encw', default='imagenet',
                         help='choose which dataset to be used for pretrained weights')
@@ -130,7 +131,7 @@ def parse_args():
     parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
     parser.add_argument("-m", "--months", default=['03'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default='/esat/gebo/mli1/pycharmproj/geoinformed_clean/downloads_half2022/downloads_230703', type=str, required=False)
+    parser.add_argument("-r", "--root-dir", default='../downloads_230703', type=str, required=False)
     parser.add_argument(
         "-ps",
         "--patch-size",
@@ -143,7 +144,7 @@ def parse_args():
     parser.add_argument("-vk", "--vkaartbladen", default=list(range(1, 44)), nargs="+", type=str)
     parser.add_argument("-vy", "--vyears", default=['2022'], nargs="+", type=str)
     parser.add_argument("-vm", "--vmonths", default=['03'], nargs="+", type=str)
-    parser.add_argument("-vr", "--vroot-dir", default='/esat/gebo/mli1/pycharmproj/geoinformed_clean/downloads_half2022/downloads_230703',type=str, required=False)
+    parser.add_argument("-vr", "--vroot-dir", default='../downloads_230703',type=str, required=False)
     parser.add_argument(
         "-vps",
         "--vpatch-size",
@@ -155,7 +156,7 @@ def parse_args():
     parser.add_argument('-calib', '--ifcalibration', default=False, type=str2bool, help='if apply calibration to model')
 
     # Preloading data to speed up data loading at the expense of RAM consumption
-    parser.add_argument('-plsf', '--preload_sat_flag', default=True, action="store_true", help='whether to preload satellite images')
+    parser.add_argument('-plsf', '--preload_sat_flag', default=False, action="store_true", help='whether to preload satellite images')
     parser.add_argument('-plgf', '--preload_gt_flag', default=True, action="store_true", help='whether to preload ground truth')
     parser.add_argument('-plcf', '--preload_cloud_flag', default=True, action="store_true", help='whether to preload cloud masks')
 
@@ -213,7 +214,7 @@ def check_args(args):
 
 
 
-def train(config, train_loader, model, criterion, optimizer, device):
+def train(config, train_loader, model, criterion, optimizer, accelerator):
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(f"Current device: {device}")
 
@@ -244,9 +245,12 @@ def train(config, train_loader, model, criterion, optimizer, device):
         # ^^^ HACK ^^^
         gt = make_one_hot(gt, config['num_classes'])
 
-        input = sat.to(device)
-        target = gt.to(device)
-        valid_mask = valid_mask.to(device)
+        # input = sat.to(device)
+        # target = gt.to(device)
+        # valid_mask = valid_mask.to(device)
+        input = sat
+        target = gt
+        valid_mask = valid_mask
 
         # compute output
         if config['deep_supervision']:
@@ -261,18 +265,26 @@ def train(config, train_loader, model, criterion, optimizer, device):
             iou = iou_score(outputs[-1], target, mask=valid_mask)
             correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
 
-
         else:
             output = model(input)
-            loss, loss_track = criterion(output, target, mask=valid_mask)
-            iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-            correct, valid = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
-            ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
+            loss, _ = criterion(output, target, mask=valid_mask)
+            optimizer.zero_grad()
+            accelerator.backward(loss)
+            optimizer.step()
+
+            all_outputs = accelerator.gather(output)
+            all_targets = accelerator.gather(target)
+            all_valid_masks = accelerator.gather(valid_mask)
+            _, loss_track = criterion(all_outputs, all_targets, mask=all_valid_masks)
+            iou = iou_score(all_outputs, all_targets, mask=all_valid_masks)  # shape: bs
+            correct, valid = pixel_accuracy(all_outputs, all_targets, mask=all_valid_masks)  # shape: bs
+            ece, ece_valid = calculate_ece(all_outputs, all_targets, 15, mask=all_valid_masks)
 
         # compute gradient and do optimizing step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        # optimizer.zero_grad()
+        # loss.backward()
+        # accelerator.backward(loss)
+        # optimizer.step()
 
         avg_meters['loss'].update(list(loss_track))
         avg_meters['iou'].update(list(iou))
@@ -302,7 +314,7 @@ def train(config, train_loader, model, criterion, optimizer, device):
                         ('ece', avg_meters['ece'].report())])
 
 
-def validate(config, val_loader, model, criterion, device):
+def validate(config, val_loader, model, criterion, accelerator):
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(f"Current device: {device}")
 
@@ -333,9 +345,12 @@ def validate(config, val_loader, model, criterion, device):
 
             gt = make_one_hot(gt, config['num_classes'])
 
-            input = sat.to(device)
-            target = gt.to(device)
-            valid_mask = valid_mask.to(device)
+            # input = sat.to(device)
+            # target = gt.to(device)
+            # valid_mask = valid_mask.to(device)
+            input = sat
+            target = gt
+            valid_mask = valid_mask
 
             if config['deep_supervision']:
                 outputs = model(input)
@@ -350,10 +365,14 @@ def validate(config, val_loader, model, criterion, device):
                 correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
             else:
                 output = model(input)
-                loss, loss_track = criterion(output, target, mask=valid_mask)
-                iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-                correct, valid = pixel_accuracy(output, target, mask=valid_mask)
-                ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
+                all_outputs = accelerator.gather(output)
+                all_targets = accelerator.gather(target)
+                all_valid_masks = accelerator.gather(valid_mask)
+                loss, loss_track = criterion(all_outputs, all_targets, mask=all_valid_masks)
+                iou = iou_score(all_outputs, all_targets, mask=all_valid_masks)  # shape: bs
+                correct, valid = pixel_accuracy(all_outputs, all_targets, mask=all_valid_masks)
+                ece, ece_valid = calculate_ece(all_outputs, all_targets, 15, mask=all_valid_masks)
+
 
     
             avg_meters['loss'].update(list(loss_track))
@@ -390,6 +409,8 @@ def validate(config, val_loader, model, criterion, device):
 def main():
     from utils.constants import norm_hi_median as norm_hi
     from utils.constants import norm_lo_median as norm_lo
+
+    accelerator = Accelerator()
     
     config = vars(parse_args())
 
@@ -492,9 +513,12 @@ def main():
             os.makedirs(
                 f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Current device: {device}")
-    model = model.to(device)
+
+    # define CUDA devices
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = accelerator.device
+    # print(f"Current device: {device}")
+    # model = model.to(device)
 
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -557,8 +581,8 @@ def main():
         years,
         months,
         patch_size=patch_size,
-        norm_hi=None,
-        norm_lo=None,
+        norm_hi=norm_hi,
+        norm_lo=norm_lo,
         split="train",
         preload_sat_flag=config['preload_sat_flag'],
         preload_gt_flag=config['preload_gt_flag'],
@@ -595,8 +619,8 @@ def main():
         vyears,
         vmonths,
         patch_size=vpatch_size,
-        norm_hi=None,
-        norm_lo=None,
+        norm_hi=norm_hi,
+        norm_lo=norm_lo,
         split="val",
         preload_sat_flag=config['preload_sat_flag'],
         preload_gt_flag=config['preload_gt_flag'],
@@ -637,21 +661,25 @@ def main():
     else:
         loop_list = range(config['epochs'])
 
+    model, optimizer, train_dataloader, val_dataloader, scheduler = accelerator.prepare(model, optimizer, train_dataloader, val_dataloader, scheduler)
+    # val_dataloader = accelerator.prepare(val_dataloader)
     for epoch in loop_list:
-        print('Epoch [%d/%d]' % (epoch, config['epochs']))
-
+        if accelerator.is_main_process:
+            print('Epoch [%d/%d]' % (epoch, config['epochs']))
+        start_time = time.time()
         # train for one epoch
-        train_log = train(config, train_dataloader, model, criterion, optimizer, device)
+        train_log = train(config, train_dataloader, model, criterion, optimizer, accelerator)
         # evaluate on validation set
-        val_log = validate(config, val_dataloader, model, criterion, device)
+        val_log = validate(config, val_dataloader, model, criterion, accelerator)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
 
-        print('loss %.4f - iou %.4f - acc %.4f - ece %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f - val_ece %.4f'
-              % (train_log['loss'], train_log['iou'], train_log['acc'], train_log['ece'], val_log['loss'], val_log['iou'], val_log['acc'], val_log['ece']))
+        if accelerator.is_main_process:
+            print('loss %.4f - iou %.4f - acc %.4f - ece %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f - val_ece %.4f'
+                % (train_log['loss'], train_log['iou'], train_log['acc'], train_log['ece'], val_log['loss'], val_log['iou'], val_log['acc'], val_log['ece']))
 
         log['epoch'].append(epoch)
         log['lr'].append(config['lr'])
@@ -677,6 +705,23 @@ def main():
                 
                 if val_log["acc"] > best_acc:
                     date_time = now.strftime("%Y%m%d%H%M%S")
+                    if accelerator.is_main_process:
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optimizer.state_dict(),
+                                "loss": train_log["loss"],
+                            },
+                            f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        )
+                    best_acc = val_log["acc"]
+                    print(f"Best acc is: {best_acc}")
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                if accelerator.is_main_process:
                     torch.save(
                         {
                             "epoch": epoch,
@@ -684,22 +729,8 @@ def main():
                             "optimizer_state_dict": optimizer.state_dict(),
                             "loss": train_log["loss"],
                         },
-                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
                     )
-                    best_acc = val_log["acc"]
-                    print("=> saved best model for validation accuracy")
-                    trigger = 0
-
-                date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": train_log["loss"],
-                    },
-                    f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
-                )
                 
                 # early stopping
                 if config["early_stopping"] >= 0 and trigger >= config["early_stopping"]:
@@ -716,6 +747,25 @@ def main():
 
                 if val_log['acc'] > best_acc:
                     date_time = now.strftime("%Y%m%d%H%M%S")
+
+                    if accelerator.is_main_process:
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optimizer.state_dict(),
+                                "loss": train_log["loss"],
+                            },
+                            f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        )
+                    best_acc = val_log["acc"]
+                    print(f"Best acc is: {best_acc}")
+                    print("=> saved best model for validation accuracy")
+                    trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                if accelerator.is_main_process:
+
                     torch.save(
                         {
                             "epoch": epoch,
@@ -723,22 +773,8 @@ def main():
                             "optimizer_state_dict": optimizer.state_dict(),
                             "loss": train_log["loss"],
                         },
-                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
                     )
-                    best_acc = val_log['acc']
-                    print("=> saved best model for validation accuracy")
-                    trigger = 0
-
-                date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": train_log["loss"],
-                    },
-                    f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
-                )
 
                 # early stopping
                 if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
@@ -754,31 +790,36 @@ def main():
 
                 if val_log['acc'] > best_acc:
                     date_time = now.strftime("%Y%m%d%H%M%S")
+                    if accelerator.is_main_process:
+
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optimizer.state_dict(),
+                                "loss": train_log['loss'],
+                            },
+                            f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        )
+
+                        #torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
+                        best_acc = val_log["acc"]
+                        print(f"Best acc is: {best_acc}")
+                        print("=> saved best model for validation accuracy")
+                        trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                if accelerator.is_main_process:
+
                     torch.save(
                         {
                             "epoch": epoch,
                             "model_state_dict": model.state_dict(),
                             "optimizer_state_dict": optimizer.state_dict(),
-                            "loss": train_log['loss'],
+                            "loss": train_log["loss"],
                         },
-                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth",
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
                     )
-
-                    #torch.save(model.state_dict(), f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}.pth")
-                    best_acc = val_log['acc']
-                    print("=> saved best model for validation accuracy")
-                    trigger = 0
-
-                date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": train_log["loss"],
-                    },
-                    f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
-                )
 
                 # early stopping
                 if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
@@ -792,6 +833,25 @@ def main():
 
                 if val_log['acc'] > best_acc:
                     date_time = now.strftime("%Y%m%d%H%M%S")
+                    if accelerator.is_main_process:
+
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optimizer.state_dict(),
+                                "loss": train_log["loss"],
+                            },
+                            f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth"
+                        )
+                        best_acc = val_log["acc"]
+                        print(f"Best acc is: {best_acc}")
+                        print("=> saved best model for validation accuracy")
+                        trigger = 0
+
+                date_time = now.strftime("%Y%m%d%H%M%S")
+                if accelerator.is_main_process:
+
                     torch.save(
                         {
                             "epoch": epoch,
@@ -799,22 +859,8 @@ def main():
                             "optimizer_state_dict": optimizer.state_dict(),
                             "loss": train_log["loss"],
                         },
-                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_bestvalacc.pth"
+                        f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
                     )
-                    best_acc = val_log['acc']
-                    print("=> saved best model for validation accuracy")
-                    trigger = 0
-
-                date_time = now.strftime("%Y%m%d%H%M%S")
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": train_log["loss"],
-                    },
-                    f"{config['output_dir']}/models/{config['name']}/arch_{config['arch']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}/model_{date_time}_lastepoch.pth",
-                )
 
                 # early stopping
                 if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
@@ -822,7 +868,9 @@ def main():
                     break
 
         torch.cuda.empty_cache()
-
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Elapsed time: {elapsed_time} seconds.")
 
 if __name__ == '__main__':
     main()

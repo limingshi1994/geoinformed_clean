@@ -24,8 +24,8 @@ import archs
 from utils import losses
 from utils.metrics import iou_score, pixel_accuracy, calculate_ece
 from unet_utils import AverageMeterBatched, AverageSumsMeterBatched, EceMeter, str2bool
-from utils.train_dataset import SatteliteTrainDataset
-from utils.eval_dataset import SatteliteEvalDataset
+from utils.train_dataset_nir import SatteliteTrainDataset
+from utils.eval_dataset_nir import SatteliteEvalDataset
 from utils.utils import make_one_hot
 
 ARCH_NAMES = archs.__all__
@@ -39,19 +39,19 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=1000, type=int, metavar='N',
+    parser.add_argument('--epochs', default=500, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
     parser.add_argument('--train_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
     parser.add_argument('--val_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
-    parser.add_argument('-b', '--train_batch_size', default=16, type=int,
+    parser.add_argument('-b', '--train_batch_size', default=8, type=int,
                         metavar='N', help='train-batch size (default: 16)')
-    parser.add_argument('-vb', '--val_batch_size', default=16, type=int,
+    parser.add_argument('-vb', '--val_batch_size', default=8, type=int,
                         metavar='N', help='validation-batch size (default: 16)')
     
     # storing outputs
-    parser.add_argument("-o", "--output-dir", default='../Jan_to_Nov', type=str, required=False)
+    parser.add_argument("-o", "--output-dir", default='../outputs/wo_blu_w_nir/', type=str, required=False)
 
     # model
     parser.add_argument(

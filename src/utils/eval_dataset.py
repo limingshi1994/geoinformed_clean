@@ -12,6 +12,7 @@ from utils.cropping import random_pixel_uniform_crop
 from utils.normalization import satellite_normalization_with_cloud_masking
 from utils.generate_subkaarts import generate_subkaarts
 
+which_channels=[0,1,2,3,5,6,7,8,9,10,11]
 
 class SatteliteEvalDataset(nn.Module):
     def __init__(
@@ -103,7 +104,7 @@ class SatteliteEvalDataset(nn.Module):
             for year in satellite_images.keys():
                 for month in satellite_images[year].keys():
                     for day in satellite_images[year][month].keys():
-                        sat = load_tiff(satellite_images[year][month][day])[:3]
+                        sat = load_tiff(satellite_images[year][month][day])[which_channels,:,:]
                         self.data_dict[kaartblad]["satellite_images"][year][month][day] = sat
     def preload_cloud(self):
         for kaartblad in self.data_dict.keys():
@@ -261,7 +262,7 @@ class SatteliteEvalDataset(nn.Module):
                 sat = self.data_dict[kaartblad]["satellite_images"][year][month][day]  # we already took [:3]
             else:
                 sat_path = self.data_dict[kaartblad]["satellite_images"][year][month][day]
-                sat = load_tiff(sat_path)[:3]
+                sat = load_tiff(sat_path)[which_channels,:,:]
 
             if self.preload_cloud_flag:
                 cloud_mask = self.data_dict[kaartblad]["cloud_masks"][year][month][day]

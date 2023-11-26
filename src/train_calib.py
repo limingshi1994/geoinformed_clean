@@ -27,6 +27,7 @@ from unet_utils import AverageMeterBatched, AverageSumsMeterBatched, EceMeter, s
 from utils.train_dataset import SatteliteTrainDataset
 from utils.eval_dataset import SatteliteEvalDataset
 from utils.utils import make_one_hot
+from utils.calibration_losses import Canonical
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
@@ -39,19 +40,19 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=1000, type=int, metavar='N',
+    parser.add_argument('--epochs', default=500, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
     parser.add_argument('--train_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
     parser.add_argument('--val_batches', default=100, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
-    parser.add_argument('-b', '--train_batch_size', default=16, type=int,
+    parser.add_argument('-b', '--train_batch_size', default=8, type=int,
                         metavar='N', help='train-batch size (default: 16)')
-    parser.add_argument('-vb', '--val_batch_size', default=16, type=int,
+    parser.add_argument('-vb', '--val_batch_size', default=8, type=int,
                         metavar='N', help='validation-batch size (default: 16)')
     
     # storing outputs
-    parser.add_argument("-o", "--output-dir", default='../Jan_to_Nov', type=str, required=False)
+    parser.add_argument("-o", "--output-dir", default='../outputs/with_calib/', type=str, required=False)
 
     # model
     parser.add_argument(
@@ -62,7 +63,7 @@ def parse_args():
     )
     parser.add_argument('--outarch', '-oa', default='Unet',
                         help='choose which outsourced architecture to be used')
-    parser.add_argument('--encoder', '-enc', default='timm-regnety_040',
+    parser.add_argument('--encoder', '-enc', default='vgg16_bn',
                         help='choose which encoder to be used')
     parser.add_argument('--encoder_weights', '-encw', default='imagenet',
                         help='choose which dataset to be used for pretrained weights')
@@ -98,7 +99,7 @@ def parse_args():
                         help='mask file extension')
 
     # optimizer
-    parser.add_argument('--optimizer', default='Adam',
+    parser.add_argument('--optimizer', default='SGD',
                         choices=['Adam', 'SGD'],
                         help='loss: ' +
                         ' | '.join(['Adam', 'SGD']) +
@@ -127,10 +128,10 @@ def parse_args():
     parser.add_argument('--num_workers', default=8, type=int)
     
     #traindataset
-    parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
+    parser.add_argument("-k", "--kaartbladen", default=list(range(1,44)), nargs="+", type=str)
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
-    parser.add_argument("-m", "--months", default=['03'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default='/esat/gebo/mli1/pycharmproj/geoinformed_clean/downloads_half2022/downloads_230703', type=str, required=False)
+    parser.add_argument("-m", "--months", default=['01','02','03','04','05','06','07','08','09','10','11','12'], nargs="+", type=str)
+    parser.add_argument("-r", "--root-dir", default='../allbands_download', type=str, required=False)
     parser.add_argument(
         "-ps",
         "--patch-size",
@@ -140,10 +141,10 @@ def parse_args():
     )
     
     #valdataset
-    parser.add_argument("-vk", "--vkaartbladen", default=list(range(1, 44)), nargs="+", type=str)
+    parser.add_argument("-vk", "--vkaartbladen", default=list(range(1,44)), nargs="+", type=str)
     parser.add_argument("-vy", "--vyears", default=['2022'], nargs="+", type=str)
-    parser.add_argument("-vm", "--vmonths", default=['03'], nargs="+", type=str)
-    parser.add_argument("-vr", "--vroot-dir", default='/esat/gebo/mli1/pycharmproj/geoinformed_clean/downloads_half2022/downloads_230703',type=str, required=False)
+    parser.add_argument("-vm", "--vmonths", default=['01','02','03','04','05','06','07','08','09','10','11','12'], nargs="+", type=str)
+    parser.add_argument("-vr", "--vroot-dir", default="../allbands_download",type=str, required=False)
     parser.add_argument(
         "-vps",
         "--vpatch-size",
@@ -152,7 +153,8 @@ def parse_args():
         help="Size of val patches.",
     )
 
-    parser.add_argument('-calib', '--ifcalibration', default=False, type=str2bool, help='if apply calibration to model')
+    parser.add_argument('-calib', '--ifcalibration', default=True, type=str2bool, help='if apply calibration to model')
+    parser.add_argument('-calf', '--calib_factor', default=8, type=int)
 
     # Preloading data to speed up data loading at the expense of RAM consumption
     parser.add_argument('-plsf', '--preload_sat_flag', default=True, action="store_true", help='whether to preload satellite images')
@@ -220,7 +222,8 @@ def train(config, train_loader, model, criterion, optimizer, device):
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
                   'acc': AverageSumsMeterBatched(),
-                  'ece': EceMeter()}
+                  'ece': EceMeter(),
+                  'calib_loss': AverageMeterBatched()}
 
     model.train()
     # model = model.to(device)
@@ -265,6 +268,12 @@ def train(config, train_loader, model, criterion, optimizer, device):
         else:
             output = model(input)
             loss, loss_track = criterion(output, target, mask=valid_mask)
+            if config['ifcalibration'] == True:
+                CalLoss = Canonical(0.01, 1, config['calib_factor'])
+                calib_loss, calib_loss_track = CalLoss(output, target, mask=valid_mask)
+                # remove if necessary
+                calib_loss_track_list = [calib_loss_track]
+                loss = loss + calib_loss
             iou = iou_score(output, target, mask=valid_mask)  # shape: bs
             correct, valid = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
             ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
@@ -278,12 +287,14 @@ def train(config, train_loader, model, criterion, optimizer, device):
         avg_meters['iou'].update(list(iou))
         avg_meters['acc'].update(list(correct), list(valid))
         avg_meters['ece'].update(ece, sum(ece_valid))
+        avg_meters['calib_loss'].update(calib_loss_track_list)
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].report()),
             ('iou', avg_meters['iou'].report()),
             ('acc', avg_meters['acc'].report()),
-            ('ece', avg_meters['ece'].report())
+            ('ece', avg_meters['ece'].report()),
+            ('calib_loss', avg_meters['calib_loss'].report())
         ])
         pbar.set_postfix(postfix)
         pbar.update(1)
@@ -299,7 +310,8 @@ def train(config, train_loader, model, criterion, optimizer, device):
     return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
                         ('acc', avg_meters['acc'].report()),
-                        ('ece', avg_meters['ece'].report())])
+                        ('ece', avg_meters['ece'].report()),
+                        ('calib_loss', avg_meters['calib_loss'].report())])
 
 
 def validate(config, val_loader, model, criterion, device):
@@ -309,7 +321,8 @@ def validate(config, val_loader, model, criterion, device):
     avg_meters = {'loss': AverageMeterBatched(),
                   'iou': AverageMeterBatched(),
                   'acc': AverageSumsMeterBatched(),
-                  'ece': EceMeter()}
+                  'ece': EceMeter(),
+                  'calib_loss': AverageMeterBatched()}
 
     # switch to evaluate mode
     model.eval()
@@ -348,11 +361,18 @@ def validate(config, val_loader, model, criterion, device):
                 loss_track /= len(outputs)
                 iou = iou_score(outputs[-1], target, mask=valid_mask)
                 correct, valid = pixel_accuracy(outputs[-1], target, mask=valid_mask)
+
             else:
                 output = model(input)
                 loss, loss_track = criterion(output, target, mask=valid_mask)
+                if config['ifcalibration'] == True:
+                    CalLoss = Canonical(0.01, 1, config['calib_factor'])
+                    calib_loss, calib_loss_track = CalLoss(output, target, mask=valid_mask)
+                    # remove if necessary
+                    calib_loss_track_list = [calib_loss_track]
+                    loss = loss + calib_loss
                 iou = iou_score(output, target, mask=valid_mask)  # shape: bs
-                correct, valid = pixel_accuracy(output, target, mask=valid_mask)
+                correct, valid = pixel_accuracy(output, target, mask=valid_mask)  # shape: bs
                 ece, ece_valid = calculate_ece(output, target, 15, mask=valid_mask)
 
     
@@ -360,13 +380,16 @@ def validate(config, val_loader, model, criterion, device):
             avg_meters['iou'].update(list(iou))
             avg_meters['acc'].update(list(correct), list(valid))
             avg_meters["ece"].update(ece, sum(ece_valid))
+            avg_meters["calib_loss"].update(calib_loss_track_list)
+
 
 
             postfix = OrderedDict([
                 ('loss', avg_meters['loss'].report()),
                 ('iou', avg_meters['iou'].report()),
                 ('acc', avg_meters['acc'].report()),
-                ('ece', avg_meters['ece'].report())
+                ('ece', avg_meters['ece'].report()),
+                ('calib_loss', avg_meters['calib_loss'].report())
             ])
 
             #update after all batches have gone through the model
@@ -384,7 +407,8 @@ def validate(config, val_loader, model, criterion, device):
     return OrderedDict([('loss', avg_meters['loss'].report()),
                         ('iou', avg_meters['iou'].report()),
                         ('acc', avg_meters['acc'].report()),
-                        ('ece', avg_meters['ece'].report())])
+                        ('ece', avg_meters['ece'].report()),
+                        ('calib_loss', avg_meters['calib_loss'].report())])
 
 
 def main():
@@ -410,6 +434,9 @@ def main():
     else:
         criterion = losses.__dict__[config['loss']]()
 
+    # if config['ifcalibration'] == 'Canonical':
+    #     criterion = CanonicalCalibrationLoss()
+
     cudnn.benchmark = True
 
     # create model
@@ -420,7 +447,7 @@ def main():
             model = architecture(
                 encoder_name=config["encoder"],  # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
                 encoder_weights=config["encoder_weights"],  # use `imagenet` pre-trained weights for encoder initialization
-                in_channels=3,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+                in_channels=11,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
                 classes=14,  # model output channels (number of classes in your dataset)
             )
             model_dir = f"{config['output_dir']}/models/{config['name']}/arch_{config['outarch']}_enc_{config['encoder']}_train_{config['train_batches']}x{config['train_batch_size']}_val_{config['val_batches']}x{config['val_batch_size']}"
@@ -466,7 +493,7 @@ def main():
         model = architecture(
             encoder_name=config['encoder'],        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
             encoder_weights=config['encoder_weights'],     # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=3,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+            in_channels=11,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
             classes=14,                      # model output channels (number of classes in your dataset)
          )
         if not os.path.exists(
@@ -625,7 +652,7 @@ def main():
     #     ('val_acc', [])
     # ])
 
-    keys = ['epoch', 'lr', 'loss', 'iou', 'acc', 'ece', 'val_loss', 'val_iou', 'val_acc', 'val_ece']
+    keys = ['epoch', 'lr', 'loss', 'iou', 'acc', 'ece', 'calib_loss', 'val_loss', 'val_iou', 'val_acc', 'val_ece', 'val_calib_loss']
     log = {key: [] for key in keys}
 
     best_iou = 0
@@ -650,8 +677,8 @@ def main():
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
 
-        print('loss %.4f - iou %.4f - acc %.4f - ece %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f - val_ece %.4f'
-              % (train_log['loss'], train_log['iou'], train_log['acc'], train_log['ece'], val_log['loss'], val_log['iou'], val_log['acc'], val_log['ece']))
+        print('loss %.4f - iou %.4f - acc %.4f - ece %.4f - calib_loss %.4f - val_loss %.4f - val_iou %.4f - val_acc %.4f - val_ece %.4f - val_calib_loss %.4f'
+              % (train_log['loss'], train_log['iou'], train_log['acc'], train_log['ece'], train_log['calib_loss'], val_log['loss'], val_log['iou'], val_log['acc'], val_log['ece'], val_log['calib_loss']))
 
         log['epoch'].append(epoch)
         log['lr'].append(config['lr'])
@@ -659,10 +686,13 @@ def main():
         log['iou'].append(train_log['iou'])
         log['acc'].append(train_log['acc'])
         log['ece'].append(train_log['ece'])
+        log['calib_loss'].append(train_log['calib_loss'])
         log['val_loss'].append(val_log['loss'])
         log['val_iou'].append(val_log['iou'])
         log['val_acc'].append(val_log['acc'])
         log['val_ece'].append(val_log['ece'])
+        log['val_calib_loss'].append(val_log['calib_loss'])
+
 
 
         if config['continue_train'] is True:

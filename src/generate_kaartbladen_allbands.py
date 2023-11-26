@@ -16,17 +16,10 @@ from utils.generate_subkaarts import generate_subkaarts
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--split", default='train', type=str)
-    parser.add_argument("-o", "--out-dir", default='../allbands_download/', required=False, type=str)
-    parser.add_argument("-k", "--kaartbladen", default=list(range(31, 44)), nargs="+", type=str)
-    parser.add_argument("-t", "--temporal-extent", default=['2022-01-01', '2023-01-01'], nargs="+", type=str)
-    parser.add_argument(
-        "-b",
-        "--bands",
-        default=["B04", "B03", "B02", "B08", "SCL", "B01", "B05", "B06", "B07", "B8A", "B11", "B12"],
-        nargs="+",
-        type=str,
-    )
+    parser.add_argument("-s", "--split", default="val", type=str)
+    parser.add_argument("-o", "--out-dir", default='allbands_download', required=False, type=str)
+    parser.add_argument("-k", "--kaartbladen", default=list(range(1, 44)), nargs="+", type=str)
+    parser.add_argument("-t", "--temporal-extent", default=['2022-01-01','2023-01-01'], nargs="+", type=str)
     parser.add_argument(
         "-gt",
         "--gt-file",
@@ -140,8 +133,6 @@ def main():
     out_dir = os.path.join(args.out_dir, split)
     # temporal_extent = ("2022-03-01", "2022-05-01")
     temporal_extent = args.temporal_extent
-    # bands = ["B04", "B03", "B02", "B08", "SCL"]
-    bands = args.bands
     # out_dir = "../generated_data"
     # gt_file = "../resources/BVM_labeled.zip"
     gt_file = args.gt_file
@@ -221,13 +212,12 @@ def main():
         if temporal_extent is not None:
             cube = eoconn.load_collection(
                 "TERRASCOPE_S2_TOC_V2",
-                bands=bands,
                 spatial_extent=spatial_extent,
                 temporal_extent=temporal_extent,
             )
         else:
             cube = eoconn.load_collection(
-                "TERRASCOPE_S2_TOC_V2", bands=bands, spatial_extent=spatial_extent
+                "TERRASCOPE_S2_TOC_V2", spatial_extent=spatial_extent
             )
 
         cube = cube.save_result(format="GTiff")

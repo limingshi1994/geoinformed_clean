@@ -12,9 +12,8 @@ from utils.cropping import random_pixel_uniform_crop
 from utils.normalization import satellite_normalization_with_cloud_masking
 from utils.generate_subkaarts import generate_subkaarts
 
-which_channels=[0,1,2,3,5,6,7,8,9,10,11]
 
-class SatteliteTrainDataset(nn.Module):
+class SatteliteEvalDataset(nn.Module):
     def __init__(
             self,
             root_dir,
@@ -24,7 +23,7 @@ class SatteliteTrainDataset(nn.Module):
             patch_size=256,
             norm_hi=None,
             norm_lo=None,
-            split="train",
+            split="val",
             preload_gt_flag=False,
             preload_sat_flag=False,
             preload_cloud_flag=False,
@@ -104,7 +103,7 @@ class SatteliteTrainDataset(nn.Module):
             for year in satellite_images.keys():
                 for month in satellite_images[year].keys():
                     for day in satellite_images[year][month].keys():
-                        sat = load_tiff(satellite_images[year][month][day])[which_channels,:,:]
+                        sat = load_tiff(satellite_images[year][month][day])[[0,1,3],:,:]
                         self.data_dict[kaartblad]["satellite_images"][year][month][day] = sat
     def preload_cloud(self):
         for kaartblad in self.data_dict.keys():
@@ -234,6 +233,24 @@ class SatteliteTrainDataset(nn.Module):
             )
             day = random.choice(days)
 
+            # Hardcoding for comparison
+            # year = "2022"
+            # month = "03"
+            # day = "26"
+            # Random coords: 1299, 707
+
+
+            # print(f"Year: {year}, month: {month}, day: {day}")
+
+            # For debugging
+            # print(f"Debugging: Kaartblad: kaartblad_3_5-6; Year: 2022; Month: 03; Day: 23")
+            # kaartblad = "kaartblad_3_5-6"
+            # year = "2022"
+            # month = "03"
+            # day = "23"
+
+            # print(f"Debugging: Kaartblad: {kaartblad}; Year: {year}; Month: {month}; Day: {day}")
+
             if self.preload_gt_flag:
                 gt = self.data_dict[kaartblad]["gt_path"]
             else:
@@ -244,7 +261,7 @@ class SatteliteTrainDataset(nn.Module):
                 sat = self.data_dict[kaartblad]["satellite_images"][year][month][day]  # we already took [:3]
             else:
                 sat_path = self.data_dict[kaartblad]["satellite_images"][year][month][day]
-                sat = load_tiff(sat_path)[which_channels,:,:]
+                sat = load_tiff(sat_path)[[0,1,3],:,:]
 
             if self.preload_cloud_flag:
                 cloud_mask = self.data_dict[kaartblad]["cloud_masks"][year][month][day]
@@ -301,8 +318,10 @@ class SatteliteTrainDataset(nn.Module):
             )
             valid_ratio = (valid_mask.sum() / valid_mask.numel()).item()
             # If there is at least one pixel that is labeled and not clouded we break and fetch the sample
-            if valid_ratio > 0:
+            if valid_ratio >= 0:
                 break
+            else:
+                print("Let's try again...")
 
         sample = {
             "gt": gt,

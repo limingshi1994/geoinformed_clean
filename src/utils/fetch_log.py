@@ -7,10 +7,12 @@ import torch
 import segmentation_models_pytorch as smp
 
 
-def fetch_log(arch, encoder, pretrained, batch_number, batch_size, acc_or_loss='loss', log_log=False):
-    model_dir = "/esat/gebo/mli1/pycharmproj/geoinformed_clean/outputs/models/backup/20230911/"
+def fetch_log(arch, pretrained, batch_number, batch_size, acc_or_loss='loss', log_log=False, encoder='imagenet', saved_loc="/esat/gebo/mli1/pycharmproj/geoinformed_clean/outputs/models/backup/20230911", legacy=False):
+    model_dir = saved_loc
+    # model_dir = "/esat/gebo/mli1/pycharmproj/geoinformed_clean/outputs/wo_blu_w_nir/models/dsb2018_96_CustomUNet_woDS/"
     train_name = f"arch_{arch}_enc_{encoder}_train_{batch_number}x{batch_size}_val_{batch_number}x{batch_size}"
     log_dir = model_dir + train_name
+    print(log_dir)
 
     csvs = glob.glob(log_dir + "/*.csv")
     csvs.sort(key=os.path.getmtime, reverse=True)
@@ -33,7 +35,12 @@ def fetch_log(arch, encoder, pretrained, batch_number, batch_size, acc_or_loss='
         classes=14,  # model output channels (number of classes in your dataset)
     )
     # model.load_state_dict(torch.load(chkpt)['model_state_dict'])
-    model.load_state_dict(torch.load(chkpt))
+    # if legacy:
+    #     model.load_state_dict(torch.load(chkpt))
+    # else:
+    checkpoint = torch.load(chkpt)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    # model.load_state_dict(torch.load(chkpt))
     model.eval()
 
     # get parameters count
@@ -66,28 +73,31 @@ def fetch_log(arch, encoder, pretrained, batch_number, batch_size, acc_or_loss='
     if log_log == True:
         if acc_or_loss == 'acc':
             fig = plt.figure(1)
-            acc_curve = plt.plot(np.log(epoch), np.log(ema_acc), label=f"{arch}_{encoder}_acc_log")
+            acc_curve = plt.plot(np.log(epoch), np.log(ema_acc), label=f"{arch}_{encoder}_{legacy}_acc_log")
             # plt.xlim(0, 10)
             legended = plt.legend()
             return yml, acc_curve, fig
 
         else:
             fig = plt.figure(1)
-            loss_curve = plt.plot(np.log(epoch), np.log(ema_loss), label=f"{arch}_{encoder}_loss_log")
+            loss_curve = plt.plot(np.log(epoch), np.log(ema_loss), label=f"{arch}_{encoder}_{legacy}_loss_log")
             # plt.xlim(0, 10)
             legended = plt.legend()
             return yml, loss_curve, fig
     else:
         if acc_or_loss == 'acc':
             fig = plt.figure(1)
-            acc_curve = plt.plot(epoch, ema_acc, label=f"{arch}_{encoder}_acc")
+            if legacy:
+                acc_curve = plt.plot(epoch, ema_acc, label=f"{arch}_{encoder}_calibration_imagenet_acc")
+            else:
+                acc_curve = plt.plot(epoch, ema_acc, label=f"{arch}_{encoder}_w/o_calibration_imagenet_acc")
             # plt.xlim(0, 10)
             legended = plt.legend()
             return yml, acc_curve, fig
 
         else:
             fig = plt.figure(1)
-            loss_curve = plt.plot(epoch, ema_loss, label=f"{arch}_{encoder}_loss")
+            loss_curve = plt.plot(epoch, ema_loss, label=f"{arch}_{encoder}_{legacy}_loss")
             # plt.xlim(0, 10)
             legended = plt.legend()
             return yml, loss_curve, fig

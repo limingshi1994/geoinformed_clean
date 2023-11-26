@@ -193,3 +193,4 @@ src/check_img_dump.py
 src/train_backup.py
 src/train_continue.py
 condor_jobs
+allbands_download

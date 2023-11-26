@@ -19,8 +19,8 @@ def get_args():
     parser.add_argument("-s", "--split", default="val", type=str)
     parser.add_argument("-k", "--kaartbladen", default=list(range(1,44)), nargs="+", type=str) #modify index with 0:train 1:val 2:test
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
-    parser.add_argument("-m", "--months", default=['03'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default='downloads_230703', type=str) #or downloads_230703/val/ or downloads_230703/test/
+    parser.add_argument("-m", "--months", default=['01','02','03','04','05','06''07','08','09','10','11','12'], nargs="+", type=str)
+    parser.add_argument("-r", "--root-dir", default='./allbands_download', type=str) #or downloads_230703/val/ or downloads_230703/test/
     parser.add_argument(
         "-ck1",
         "--cloud-kernel-1",

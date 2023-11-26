@@ -293,8 +293,8 @@ def main():
 
     # kaartbladen = [str(item) for item in range(1, 43)]
     kaartbladen = args.kaartbladen
-    kaartbladen.remove("35")
-    kaartbladen.remove("39")
+    # kaartbladen.remove("35")
+    # kaartbladen.remove("39")
     # years = ["2021", "2022"]
     years = args.years
     # months = [f"{item:02}" for item in range(1, 13)]
