@@ -40,11 +40,11 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--epochs', default=500, type=int, metavar='N',
+    parser.add_argument('--epochs', default=100, type=int, metavar='N',
                         help='number of total epochs to run (how many sampling cycles)')
-    parser.add_argument('--train_batches', default=100, type=int, metavar='N',
+    parser.add_argument('--train_batches', default=500, type=int, metavar='N',
                         help='number of total samples we take during one train epoch')
-    parser.add_argument('--val_batches', default=100, type=int, metavar='N',
+    parser.add_argument('--val_batches', default=500, type=int, metavar='N',
                         help='number of total samples we take during one evaluation epoch')
     parser.add_argument('-b', '--train_batch_size', default=8, type=int,
                         metavar='N', help='train-batch size (default: 16)')
@@ -52,7 +52,7 @@ def parse_args():
                         metavar='N', help='validation-batch size (default: 16)')
     
     # storing outputs
-    parser.add_argument("-o", "--output-dir", default='../outputs/with_calib/', type=str, required=False)
+    parser.add_argument("-o", "--output-dir", default='./outputs/11_channels/', type=str, required=False)
 
     # model
     parser.add_argument(
@@ -131,7 +131,7 @@ def parse_args():
     parser.add_argument("-k", "--kaartbladen", default=list(range(1,44)), nargs="+", type=str)
     parser.add_argument("-y", "--years", default=['2022'], nargs="+", type=str)
     parser.add_argument("-m", "--months", default=['01','02','03','04','05','06','07','08','09','10','11','12'], nargs="+", type=str)
-    parser.add_argument("-r", "--root-dir", default='../allbands_download', type=str, required=False)
+    parser.add_argument("-r", "--root-dir", default='./allbands_download', type=str, required=False)
     parser.add_argument(
         "-ps",
         "--patch-size",
@@ -144,7 +144,7 @@ def parse_args():
     parser.add_argument("-vk", "--vkaartbladen", default=list(range(1,44)), nargs="+", type=str)
     parser.add_argument("-vy", "--vyears", default=['2022'], nargs="+", type=str)
     parser.add_argument("-vm", "--vmonths", default=['01','02','03','04','05','06','07','08','09','10','11','12'], nargs="+", type=str)
-    parser.add_argument("-vr", "--vroot-dir", default="../allbands_download",type=str, required=False)
+    parser.add_argument("-vr", "--vroot-dir", default="./allbands_download",type=str, required=False)
     parser.add_argument(
         "-vps",
         "--vpatch-size",
@@ -157,9 +157,9 @@ def parse_args():
     parser.add_argument('-calf', '--calib_factor', default=8, type=int)
 
     # Preloading data to speed up data loading at the expense of RAM consumption
-    parser.add_argument('-plsf', '--preload_sat_flag', default=True, action="store_true", help='whether to preload satellite images')
-    parser.add_argument('-plgf', '--preload_gt_flag', default=True, action="store_true", help='whether to preload ground truth')
-    parser.add_argument('-plcf', '--preload_cloud_flag', default=True, action="store_true", help='whether to preload cloud masks')
+    parser.add_argument('-plsf', '--preload_sat_flag', default=False, action="store_true", help='whether to preload satellite images')
+    parser.add_argument('-plgf', '--preload_gt_flag', default=False, action="store_true", help='whether to preload ground truth')
+    parser.add_argument('-plcf', '--preload_cloud_flag', default=False, action="store_true", help='whether to preload cloud masks')
 
 
     config = parser.parse_args()
